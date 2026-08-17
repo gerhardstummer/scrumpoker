@@ -1,0 +1,62 @@
+Prompt für das vollständige Projekt
+
+Kontext & Architektur:
+Erstelle ein leichtgewichtiges, performantes Echtzeit-Tool für "Planning Poker" (Scrum Estimation), das auf einer dreischichtigen Architektur basiert:
+
+    index.php (Server-Side Template & API-Endpunkte für Session/State Handling via JSON)
+
+    index.js (Client-Side State-Machine, AJAX-Polling, Statistik-Berechnung und Event-Handling)
+
+    style.css (Dezentes, filigranes UI-Styling basierend auf einer reinen Grau-Blau-Palette)
+
+Das Tool muss vollständig ohne externe Abhängigkeiten (kein jQuery, kein Tailwind, kein Bootstrap) auskommen und native Web-APIs nutzen. Es muss dreisprachig aufgebaut sein (Deutsch, Englisch, Ungarisch) und nahtlos zwischen den Sprachen umschalten können.
+1. Technische Anforderungen an die Komponenten
+Datei 1: index.php
+
+    Session- & State-Management: Verwalte Räume, Teilnehmer und Stimmen in einer flachen Datei-Struktur (JSON) oder einer simplen In-Memory-Struktur auf dem Server.
+
+    Rollenmodell: Unterscheide strikt zwischen Moderator (Admin) und Schätzer (Participant). Der Ersteller des Raums wird standardmäßig zum Moderator.
+
+    Sicherheit: Implementiere Funktionen zum Kicken/Bannen von Usern und zum Zurücksetzen des Raums.
+
+    Jira-Integration: Biete ein Eingabefeld für eine Story-URL/Jira-ID, die nach dem Speichern für alle Teilnehmer als klickbarer Link gerendert wird.
+
+    Markup: Generiere ein sauberes, semantisches HTML5-Layout mit einem zweispaltigen Grid-System (.main-layout):
+
+        Linke Spalte: Aktive Story, drei auswählbare Kartendecks (Standard Fibonacci, T-Shirt-Größen, Risiko-Matrix).
+
+        Rechte Spalte: Countdown-Timer, Teilnehmerliste mit Vote-Indikatoren, Statistik-Panel.
+
+Datei 2: index.js
+
+    State Engine & Polling: Implementiere ein robustes Long-Polling oder kurzes Intervall-Polling (z.B. alle 1-2 Sekunden), um den Raum-Status synchron zu halten.
+
+    Lokalisierung: Hinterlege ein zentrales i18n-Objekt mit Übersetzungen für alle UI-Texte in DE, EN und HU.
+
+    Karten-Logik: Erlaube das Auswählen und Abwählen einer Karte. Sobald der Moderator auf "Aufdecken" (Reveal) klickt, triggere eine visuelle Flip-Animation.
+
+    Countdown: Ein kreisförmiger Timer (SVG-basiert), der vom Moderator gestartet werden kann (Default: 5 Sekunden).
+
+    Statistik- & Empfehlungs-Engine:
+
+        Berechne nach dem Aufdecken mathematisch präzise den Median, den Durchschnitt (Average) und den Modus (häufigste Karte).
+
+        Implementiere eine intelligente Empfehlungsbox: Wenn der errechnete Median exakt im aktiven Deck existiert, wird er als Schätz-Empfehlung ausgegeben. Wenn er zwischen zwei Werten liegt, ermittle die Karte mit der höchsten Frequenz (Modus). Bei Gleichstand (Tied Frequency) zeige beide Werte an.
+
+Datei 3: style.css
+
+    Design-Sprache: Flaches, hochprofessionelles Software-Design mit dezenten Anleihen aus Soft-Neumorphismus und Glassmorphismus (Subtile Border-Rgb-Werte, sanfte Backdrops).
+
+    Farbpalette: Strikt limitiert auf Grau- und Blau-Nuancen (Slate Grey, Steel Blue, Navy). Absolut keine Grün-, Lila- oder harten Rot-Töne (Ausnahme: dezentes Rot für Gefahren-Aktionen wie Löschen/Kicken). Der Darkmode muss über CSS-Variablen gesteuert werden ([data-theme="dark"]).
+
+    Kompaktheit: Die Poker-Karten müssen extrem filigran, schlank und platzsparend dimensioniert sein (max-width: 65px, height: 100px), um klobige Kasten-Optik zu vermeiden.
+
+    Animationen:
+
+        Eine flüssige 360-Grad-Y-Achsen-Rotation (.flip-anim) beim Aufdecken der Karten.
+
+        Ein linearer stroke-dashoffset-Abbau für den kreisförmigen blauen Countdown-Timer.
+
+2. Ausgabe-Format
+
+Generiere den Code sauber aufgeteilt in die drei genannten Dateien. Achte darauf, dass alle IDs und Klassen in der JavaScript-Logik exakt mit den CSS-Selektoren und dem HTML-Markup in der PHP-Datei übereinstimmen, damit das System out-of-the-box lauffähig ist.

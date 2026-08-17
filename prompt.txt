@@ -1,0 +1,293 @@
+Du bist ein erfahrener Web-Entwickler und Designer der tolle moderne PHP-Anwendungen entwicklen kann und diese auch qualitativ hochwertig und gut getestet entwickeln kann.
+
+Ich möchte, dass du mir ein vollständiges, lauffähiges Scrum Estimation Poker Webprojekt in PHP erzeugst. 
+Bei der Anmeldung musst du under anderem einen Raumnamen definieren. Alle die hier den selben Raumnamen wählen befinden sich nach dem Login und können geheim eine Schätzung mittels Karten abgeben.
+Das Projekt soll aus folgenden Dateien bestehen:
+
+1. index.php
+2. index.js
+3. style.css
+4. cards.json
+5. rooms.json
+6. README.txt
+Gliedere die Texte als klassisches Key-Value-System in eine jeweils eigene json-Datei je Sprache. Diese sollen im Untervezreichnis "./lang" liegen.
+Die Sprachdateien sollen dabei vollständig alle Texte beinhalten.
+
+
+
+---------------------------------------
+FUNKTIONALE ANFORDERUNGEN
+---------------------------------------
+
+ALLGEMEIN:
+- Keine Datenbank, alles über PHP-Sessions.
+- Login mit Name, Raumname und Rolle (User, Moderator, Admin) so wie Auswahl der Sprache.
+- Admins sehen Adminbereich
+- Admins + Moderatoren dürfen Runde zurücksetzen und Karten für alle sichtbar aufdecken.
+- Admins + MOderatoren können für alle im selben Raum die Sichtbarkeit der Kartensets global bestimmen (Fibonacci oder T-Shirt, oder auch Beide).
+- Admin ist auch Moderator
+- Moderator ist auch User
+- Admin, Moderator und User in einem Raum sehen sich in der Teilnehmer-Liste
+
+- Votes werden automatisch zurückgesetzt, wenn das Set geändert wird.
+- Live-Status-Updates über AJAX (Polling).
+- Dark-Mode per Button für alle ermöglich.
+- Default soll ein Light Mode gewählt sein.
+- der Countdown-Block ist unsichtbar.
+- wenn der Moderator aufdecken wählt, wird Countdown-Block für alle eingeblendet und der Countdown startet.
+- wenn der Countdown 0 erreicht wird der Countdown-Block wieder ausgeblendet und alle Karten der Teilnehmer im Raum aufgedeckt. 
+- wenn der Countdown 0 erreicht hat können keine Karten mehr geklickt werden, bis der Moderator zurückgesetzt hat.
+
+- in der Teilnehmerliste sind alle User im Raum mit ihrem Namen und der ROlle in Klammer gelistet.
+- es gibt auch ein eigenes Symbol vor dem Namen für jede Rolle.
+- wenn ein User eine Karte gewählt hat, so ist das in der Teilnehmer-Liste durch ein Kartensymbol für alle sichtbar. Die Karte bleibt vorerst noch verdeckt,
+- die gewählte Karte eines Teilnahmers wird aber erst für alle im Raum aufgedeckt, wenn der Moderator aufdecken wählt und der Countdown abgelaufen ist.
+- Teilnehmerliste sortiert nach Rolle (Admin, Moderator, User)
+- Alle Teilnehmer im selben Raum sollen sich in der Teilnehmerliste sehen und auch darüber synchronisiert sein.
+- Zeige die Werte der Loginmaske auch in der URL als URL-Parameter (user,room,role,lang) an und umgekehrt. Wenn die URL Parameter vollständig sind (lang kann fehlen, das es default auch deutsch ist), dann wird die Login-Maske übersprungen.
+
+STATISTIK:
+- Fibonacci: Anzahl, Mittelwert, Median, häufigste Karte(n). 
+- T-Shirt: Anzahl, 
+           häufigste Karte(n): sollten hier mehrere Karten die selbe höchste Häufigkeit haben, dann sollen diese alle mit Komma separiert gelistet werden 
+- Empfehlung:
+        Wenn Median einem Kartenwert entspricht -> Median
+        Sonst eindeutige häufigste Karte
+		
+- getrennte Statistik für nummerische Decks (Fibonacci, Personentage) und Nicht-Nummerische (T-Shirt).
+- Statistik darf NIE abbrechen, auch bei gemischten Votes.
+- T-Shirt Size ist dabei eine nicht nummerische Größe, prinzipiell soll die Statisitik auch für nicht nummerische Werte möglich sein
+- wenn mehrere verschiedene Karten die selbe häufigkeit haben, dann sollen alle Karten mit der selben höchsten Häufigkeit gelistet werden.
+- Die Statistik wird erst angezeigt und aktualisiert, wenn die Karten aufgedeck werden.
+- Die Statistik wird zurückgesetzt wenn Moderator auf Zurücksetzen klickt.
+
+
+LOGIN
+
+---------------------------------------
+LAYOUT
+---------------------------------------
+
+Die Applikation besteh aus einer Login-Maske und der Hauptmaske
+Die Login Maske beistzt Eingabe Felder mit Benutzer, Raumname, User-Rolle, einer Combobox für die Auswahl der Sprache. Die Sprache ist per Default vorbelegt mit "Deutsch" und einen Login-Button, der beim Klick auf die Hauptmaske wechselt, wenn alle Felder korrekt befüllt sind.
+Die Login-Daten der Maske werden als URL-Parameter übernommen und angezeigt, könnten dort auch jederzeit dynamisch abgeändert werden. Wenn Sprache als URL-Parameter fehlt, dann wird "Deutsch" als default übergeben.
+Wenn die Felder der Login-Maske ausgefüllt werden, wird autoamtisch der Parameter auch sofort in die URL übernommen.
+Wenn die URL Parameter Benutzer, Raumname, User-Rolle enthalten, dann wird die Loginmaske übersprungen und man kommt gleich zur Hauptmaske
+
+Die Hauptmaske sieht so aus:
+
+ganz oben in der Titelleiste links soll "Scrumpoker für den Raum" dann der Raumname in Klammern folgen. 
+Rechtlinks ist der angeneldete User mit seiner Rolle sichtbar, ein Toggle für Wahl des Dark- und Light-Modus soll angezeigt werden, ganz rechts existiert ein Abmelde-Link der bei Klick wieder zur Login-Maske führt
+
+LINKER BEREICH (von oben nach unten):
+1. Moderations-Panel (Karten aufdecken, Zurücksetzen) nur für Moderatoren sichtbar
+2. Karten-Panel
+3. Story-Panel: im Story-Panel sollen die Kartenset getrennt untereinander dargestellt werden
+
+RECHTER BEREICH (von oben nach unten):
+1  Countdown-Panel für alle Rollen sichtbar
+2. Teilnehmer-Panel für alle Rollen sichtbar
+3. Statistik-Panel für alle Rollen sichtbar
+4. Deck-Konfiguration (nur Rolle Admin sichtbar)
+5. Raumliste (nur Rolle Admin sichtbar)
+
+---------------------------------------
+USER-FUNKTIONEN:
+- Story setzen.
+---------------------------------------
+MODERATOR-FUNKTIONEN:
+---------------------------------------
+- Button mit Bezeichnung "aufdecken".
+- Button mit Bezeichnung "zurücksetzen"
+- Der Button für "aufdecken" soll initial aktivert und klickbar sein. Danach kann er aber nicht mehrmals geklickt werden, wenn zuvor nicht "zurücksetzen" geklickt wurde. Bedenke hier den Fall, dass das auch inital beim Programmstart richtig funktionieren muss.
+- Kartenset mittels Checkbox aktivieren, Es soll ein Kartendeck für Fibonacci, T-Shirt, Personentage geben. Mehrfachauswahl soll möglich sein. Diese Checkboxen bitte in die Deck-Konfiguration.
+- Rollen ändern.
+- User bannen / entbannen.
+- Der Moderationsblock soll nur für Moderatoren sichtbar sein, für User bleibt er ausgeblendet.
+
+---------------------------------------
+Admin-FUNKTIONEN:
+- T-Shirt-Sizes bearbeiten.
+- Fibonacci-Wertebereich bearbeiten
+- Countdown Initialwert setzen
+- Personentage Initialwert setzen
+In diesem Block gibt es einen Speichern Button, der die Änderungen übernimmt, für den Raum speichert und die Änderungen beim Speichern übernimmt und aktualisiert.
+---------------------------------------
+
+Default-Werte:
+Der Countdown soll per Default auf 5 Sekunden stehen
+Der Default Fibonacci-Wertebereich soll 0,1,2,3,5,8,13,20,40,100,? sein
+Die Default T-Shirt-Size soll XS,S,M,L,X,XL,XXL,? sein
+Die Default Personentage sollen 1,5,10,15,20,25,30,35,50,75,100,125,150,200 sein
+Fibonacci-Deck soll aktiv sein
+T-Shirt-Deck soll aktiv sein
+
+Die Defaultwerte sollen pro Raum gespeichert werden können.
+---------------------------------------
+
+Countdown:
+Der Countdown wird erst eingeblendet wenn Moderator auf aufdecken klickt.
+Während der Countdown läuft, können die User die Karten noch abändern, danach nicht mehr
+Wenn der Countdown abgelaufen ist, wird er wieder für alle ausgeblendet.
+Ergänze den Countdown um einen dynamischen SVG-Fortschrittskreis (Circular Progress Bar)
+
+Style:
+Im Style soll keine Farbe grün verwendet werden.
+Der Light Mode soll graue und blaue Farbtöne enthalten.
+Die Bezeichnungen Labels und Buttons sollen default auf deutsch erfolgen,
+Ganz oben rechts soll aber eine Combobox mit den Sprachen deutch, englich, ungarisch erscheinen. Je nach gewählter Sprache können die Texte zur Laufzeit entsprechend angezeigt werden.
+Per Default soll die Sprache "deutsch" gewählt sein.
+Die Karten sollen als Spielkarten klar erkennbar sein, verwende dafür einen modernernen Spielkarten-Style, an den Kartenrändern soll auch der Wert etwas kleiner, wie bei Spielkarten üblich zu sehen sein.
+Bei einem Hover der Karte springen sie leicht auf
+Der Hintergrund von nicht gewählten Karten soll grau verlaufend sein
+Wenn eine Karte durch einen Klick gewählt wird, dann soll diese einen deutlich markierten Glow besitzen und etwas größer dargestellt sein, als nicht gewählte Karten.
+Wenn eine Karte aufgeklappt wird oder durch erneuten Klick wieder abgewählt wird, soll ein animierter Dreheffekt der Karte zu sehen sein.
+Der Countdown soll mindestens genau so groß sein, wie eine Karte. Es soll Clean Circular Countdown mit Segementen sein, Farbe in Blau
+- style die Karten im Neumorphism Style
+- Erzeuge ein UI im Neumorphic Design
+- Gestalte Panels, Buttons und Karten im Glassmorphism dar
+---------------------------------------
+
+UI-Anforderungen:
+- Keine Overlays, keine modalen Fenster.
+- Live-Status-Updates ueber AJAX (Polling).
+- Karten klickbar, responsive, hover-Effekt. Das soll aber nur initial oder wenn zurückgesetzt wurde möglich sein, nicht wenn aufgedeckt wurde.
+- Der Deckmodus soll nicht im Block Moderator sondern bei den Kartendecks für Moderatoren und Admins sichtbar sein. User sollen ihn nicht sehen.
+- mache das Storyfeld etwas länger und einzeilig damit man da einfach einen Link hineinkopieren kann.
+- achte darauf, dass zwischen den Buttons ausreichend Platz liegt und diese sich nicht überlappen.
+- wenn eine Karte gewählt und angeklickt wird, dann zeige einen animierten Dreheffekt der gewählten Karte.
+- wenn eine Karte geklickt wird, dann soll dafür ein animierten Dreheffek angezeigt werden. Sowohl beim anwählen, wie abwählen.
+- eine gewählte Karte soll mit einem Glow-Effekt angezeigt werden, sowie deutlich hervorgehoben etwas größer dargestellt werden.
+- Über jedem Block soll ein Label mit entsprechender Überschrift zu sehen sein
+- ganz Oben soll der Text "Scrumpoker für den Raum" mit ensprechend aktuellem Raumname zu sehen sein.
+
+
+---------------------------------------
+Teilnehmerliste:
+Die Teilnehmerliste soll modern, klar strukturiert und visuell ansprechend sein.
+Bitte folgende Regeln dafür einhalten:
+
+Für jede Rolle soll es ein eigenes Icon geben
+Für den Status der Votes soll es ein eigenes Icon geben, versteckt, gewählt und aufgdeckt, bei aufgedeckt soll auch der jeweilige Wert dann sichtbar sein.
+Eine verdeckte Karte soll in der Teilnehmerliste eine blaue Karte mit Fragezeichen in der Mitte sein.
+Wenn ein User gebannt wurde, dann bleibt dieser trotzdem in der Teilnehmerliste weierhin sichtbar und Moderatoren und Admin bekommen einen Button zum entbannen, damit er wieder teilnehmen kann.
+
+
+	Darstellung:
+	   - Name links, Rolle in Klammern
+	   - Icon vor dem Namen
+	   - Vote rechtsbuendig
+	   - Einzeilige Darstellung pro Teilnehmer
+	   - Soft-UI / Neumorphism fuer jeden Teilnehmer-Eintrag
+	   - Hover-Effekt: leichte Skalierung + Schatten
+
+	Sortierung:
+	   Admins zuerst, dann Moderatoren, dann User
+	   Innerhalb der Rolle alphabetisch
+
+	5. Banned-Status:
+	   Wenn ein User gebannt ist, soll "(banned)" hinter dem Namen stehen.
+
+	6. Keine Ueberschreibung der Liste bei Polling, wenn der User gerade scrollt.
+---------------------------------------
+
+Eingabefelder:
+im Story-Panel sollte die Story editierbar sein. Beginn der Story-Name mit http so soll der Story-Name als Link dargestellt werden. Der Link soll sich beim Klick imemr in einem neuen Browser-Tab öffnet.
+die Kartensets sollen ebefalls editierbar sein.
+die Story im Story-Panel wird mit jedem Reset wieder zurückgesetzt.
+Die Werte der Kartensets sollen pro Raum gespeichert werden und sind vom Admin veränderbar.
+Die Eingabefelder sollen ihren lokalen Wert behalten, solange der User tippt. Diese dürfen nicht wieder auf den Default-Wert zurückspringen. Auch nicht, wenn sie den Fokus verlieren.
+Das klassisches Race-Condition-Problem beim Polling soll vermieden werden, die EIngabefelder dürfen nicht durch Seitenrefresh immer wieder mit den Default-Werten belegt werden.
+Die Kartendeck sollen jeweiligen getrennt untereinander sein.
+Eine Karte soll immer nur aus einem Deck gewählt werden, auch wenn die Zahlenwerte der Karten in unterschiedlichen Decks ident sein sollten.
+Wenn die Sprache gewächselt wird, sollen die Bezeichnungen in der Maske sofort in der neuen Sprache gezeigt werden. 
+---------------------------------------
+DATEIEN:
+---------------------------------------
+
+index.php:
+- Enthält Login, Session-Handling, alle AJAX-Endpunkte, HTML-Grundgerüst.
+- KEIN JavaScript im HTML, alles ausgelagert in index.js.
+- Korrekte Statistik-Berechnung (inkl. häufigste Karte).
+- Countdown-Daten für alle User sichtbar.
+
+index.js:
+- Enthält komplettes UI-Rendering.
+- Moderationsblock oben, Karten darunter, Story darunter.
+- Statistik oben rechts, Teilnehmer darunter, Deck unten.
+- Öffentlicher Countdown im Teilnehmer-Panel.
+- Fehlerfreie updateUI() ohne Abbrüche.
+- Fehlerfreie updateCountdown() für alle User.
+- Dark-Mode.
+- Polling alle 1000ms.
+
+style.css:
+- Modernes zweispaltiges Layout.
+- Panels, Buttons, Karten, Dark-Mode.
+- Countdown-Styles.
+- Responsive Karten-Grid.
+- Zartes Soft-UI / Modern Minimalist (kein schwerer, klobiger Neumorphismus).
+- zarte dezente Rahem mit leichten Schatten
+- die Teilnehmerliste mit einem coolen Design mit Name, Symbol in Klammer für die Rolle, und Status, ob bereits eine Karte gewählt wurde. Der Kartenwert soll im Status aber erst für alle sichtbar sein, wenn Moderator die Karten aufdeckt.
+- Statistik soll ein cooles ansprechendes Design haben, dabei sollen die Labels der Statistik-Werte links stehen, die zugehörigen Werte rechts davon, der Wert für die Empfehlung soll etwas deutlicher hervorgehoben werden
+
+cards.json:
+- Standard-Fibonacci-Set.
+- Standard-T-Shirt-Set.
+- Personentage-Set
+
+rooms.json:
+- synchronisation der Raumeinstellungen
+- Welche Kartensets mit welchen Wertebereichen sind möglich 
+
+Raumliste:
+- hier werden alle akutell verfügbaren Räume gelistet. Ergänze pro Raum einen Button löschen, der den Raum kömplett entfernt und alle Daten dazu löscht.
+
+README.txt:
+- Beschreibung, Installation, Funktionen, Lizenz.
+
+---------------------------------------
+Fehlerhandling
+Wenn beim Laden der entprechenden Sprachdatei ein Fehler auftaucht, weil die Datei z.B. nicht gefunden wird, so gib bitte einen Fehler zumindest in der Console aus.
+
+Der Dark-/Light-Mode-Button soll voll funktionstüchtig in der Titelzeile integriert werden, 
+die Farbpalette soll strikt auf Graustufen und reines Blau bereinigt werden (jegliches Grün soll vermiden werden) 
+die Synchronisation der URL-Parameter soll bidirektional in Echtzeit erfolgen
+
+---------------------------------------
+WICHTIG:
+---------------------------------------
+Bitte liefere ALLE Dateien vollständig und ohne Platzhalter.
+Jede Datei in einem eigenen Codeblock.
+- Liefere das Ergebnis vollständig im UTF-8 Format
+Komplettes Projekt in mehreren Teilen komplett ausgeschrieben  
+
+---------------------------------------
+Nutze dafür den folgenden Stil:
+Bitte erstelle alle Frontend-Komponenten und UI-Stile strikt nach folgenden Vorgaben:
+
+    Farbpalette: Reine Graustufen-Basis (Light- & Darkmode über CSS-Variablen) kombiniert mit einem klaren, kräftigen Blau (#3498db / #52b3d9) als einziger Primär- und Akzentfarbe. Absolut keine grünen Akzente oder nativen Browser-Grüntöne verwenden.
+
+    Oberflächen & Panels: Moderner, unaufdringlicher Glassmorphism-Look mit hoher Unschärfe (backdrop-filter: blur(16px)).
+
+    Rahmen & Schatten: Keine harten Trennlinien oder klobige Schatten. Nutze extrem dezente, transluzente Rahmen (rgba(0,0,0,0.05)) und flache, weiche Soft-Schatten (box-shadow: 0 4px 20px rgba(0,0,0,0.04)) für ein cleanes, flaches Gefühl.
+
+    Interaktive Elemente (Karten/Buttons):
+
+        Hover-Effekte dezent halten (z.B. minimales Anheben über translateY(-4px)).
+
+        Aktive/Ausgewählte Zustände stark hervorheben: Leicht vergrößern via scale(1.06), Z-Index erhöhen und einen intensiven, strahlenden blauen Glow-Effekt zuweisen (box-shadow: 0 0 4px var(--primary), 0 8px 24px rgba(52, 152, 219, 0.5)).
+
+        prüfe bitte alle Bezeichnungen, Labels, Buttons, Beschriftungen, Texte und Fehlermedlungen und ziehe diese in die jeweilige Sprachdatei heraus.
+Gewählte Karten sollen einen tiefen, pulsierenden Neon-Glow in Electric-Blue haben , elegant hoch skaliert werden und beim An- und Abwählen eine butterweiche 3D-Flip-Animation um 360 Grad haben.
+Wurde eine Karte gewählt, so sollen alle nicht gewählten Karten aller Decks leicht transparent dargestellt werden.
+Karte aufdecken muss auch initial funktionieren, wenn noch nie zurücksetzen geklickt wurde.
+Sollange der Countdown nicht abgelaufen ist, können alle User die Karten noch ändern. Erst wenn der Countdown auf 0 steht, können die gewählten Karten nicht mehr verändert werden.
+Die Bildschirmbreite für die Hauptmaske bitte gut nutzen.
+Auch der Moderator soll das Moderations-Panel sehen und nutzen können.
+Auch das Story-Panel soll vom Moderator editiert werden können.
+Achte darauf, dass initial noch kein Raum existiert. Neue User sollen daher nicht versehentlich als gebannte User identifiziert werden.
+Ergänze einen Button Clear im Moderations-Panel, der alle Teilnehmer, die sich akteull gerade nicht im Raum befinden, aus dem Raum löscht.
+Wird das Progamm über URL-Parameter aufgerufen, so müssen die User auch als Teilnehmer im Raum erscheinen, auch wenn sie damit den Login überspringen.
+
+Anstatt die Werte (wie den Mittelwert, Median oder die Empfehlung) als einfachen Flachtext anzuzeigen, werden die wichtigsten Metriken jetzt als stylische, kompakte Miniatur-Pokerkarten im Layout gerendert. Das fügt sich visuell perfekt in das restliche Planning-Poker-Design ein.
