@@ -1,2 +1,2 @@
 # scrumpoker
-PHP Anwendung für Scrumpoker
+PHP-Anwendung für Scrum Estimation Poker. Siehe `readme.txt`.

@@ -1,364 +1,889 @@
 /**
- * Professional Scrum Poker - Core Client Engine
- * Asynchronous Multi-Role Integration & Frontend Core
+ * Scrum Poker – client: polling, i18n, URL login, rendering.
  */
 
-let currentRoom = '';
-let currentUser = '';
-let currentRole = '';
-let currentLang = 'de';
-let i18nDict = {};
-let availableDecks = {};
-let activePolling = null;
-let clientStateHash = '';
+var currentRoom = '';
+var currentUser = '';
+var currentRole = '';
+var currentUid = '';
+var currentBanned = false;
+var currentLang = 'de';
+var prevRevealed = false;
+var i18nDict = {};
+var activePolling = null;
+var clientStateHash = '';
+var lastState = null;
+var countdownStartedAt = 0;
+var isScrollingParticipants = false;
+var scrollResetTimer = null;
+var autoJoining = false;
 
-document.addEventListener('DOMContentLoaded', async () => {
-    await loadDecks();
-    await changeLanguage(document.getElementById('lang-select').value);
+var CIRCUMFERENCE = 251.2;
+var POLL_MS = 1000;
+
+document.addEventListener('DOMContentLoaded', function () {
+    applyStoredTheme();
     setupEventListeners();
+    hydrateFromUrl();
+    changeLanguage(document.getElementById('lang-select').value).then(function () {
+        if (canAutoJoin()) {
+            joinRoom(true);
+        }
+    });
 });
 
-async function loadDecks() {
+function applyStoredTheme() {
     try {
-        const res = await fetch('index.php?action=get_decks');
-        availableDecks = await res.json();
-    } catch (e) { console.error("Failed loading card configuration mappings", e); }
-}
-
-async function changeLanguage(lang) {
-    currentLang = lang;
-    try {
-        const res = await fetch(`index.php?action=get_language&lang=${lang}`);
-        i18nDict = await res.json();
-        
-        // DOM Translation Sweep
-        document.querySelectorAll('[data-i18n]').forEach(el => {
-            const key = el.getAttribute('data-i18n');
-            if (i18nDict[key]) el.textContent = i18nDict[key];
-        });
-        
-        document.getElementById('lang-select').value = lang;
-        document.getElementById('workspace-lang-select').value = lang;
-    } catch(e) { console.error("Error context handling languages translation parsing", e); }
-}
-
-function setupEventListeners() {
-    document.getElementById('lang-select').addEventListener('change', (e) => changeLanguage(e.target.value));
-    document.getElementById('workspace-lang-select').addEventListener('change', (e) => changeLanguage(e.target.value));
-    
-    document.getElementById('btn-theme-toggle').addEventListener('click', () => {
-        const root = document.documentElement;
-        const currentTheme = root.getAttribute('data-theme') || 'light';
-        root.setAttribute('data-theme', currentTheme === 'light' ? 'dark' : 'light');
-    });
-
-    document.getElementById('btn-join').addEventListener('click', joinRoom);
-
-    // Administrative Input Hooks
-    document.getElementById('select-deck-type').addEventListener('change', (e) => updateRoomConfig({ deckType: e.target.value }));
-    document.getElementById('input-story-url').addEventListener('change', (e) => updateRoomConfig({ storyUrl: e.target.value }));
-    
-    document.getElementById('btn-reveal').addEventListener('click', () => updateRoomConfig({ revealed: true }));
-    document.getElementById('btn-reset').addEventListener('click', () => updateRoomConfig({ reset: true }));
-    document.getElementById('btn-start-timer').addEventListener('click', () => {
-        const dur = document.getElementById('input-timer-duration').value;
-        updateRoomConfig({ startTimer: true, timerDuration: parseInt(dur) || 30 });
-    });
-}
-
-async function joinRoom() {
-    const room = document.getElementById('room-id-input').value.trim();
-    const name = document.getElementById('username-input').value.trim();
-    const role = document.getElementById('role-select').value;
-
-    if (!room || !name) return;
-
-    const res = await fetch('index.php?action=join_room', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ room, name, role })
-    });
-    
-    const data = await res.json();
-    if (data.success) {
-        currentRoom = data.room;
-        currentUser = data.name;
-        currentRole = data.role;
-
-        document.getElementById('login-container').style.display = 'none';
-        document.getElementById('main-layout').style.display = 'grid';
-        
-        document.getElementById('display-room-name').textContent = `#${currentRoom}`;
-        document.getElementById('display-user-info').textContent = `${currentUser} (${i18nDict['role-' + currentRole] || currentRole})`;
-
-        if (currentRole === 'admin' || currentRole === 'moderator') {
-            document.getElementById('panel-admin').style.display = 'block';
+        var stored = localStorage.getItem('scrumpoker-theme');
+        if (stored === 'dark' || stored === 'light') {
+            document.documentElement.setAttribute('data-theme', stored);
         }
+    } catch (e) { /* ignore */ }
+}
 
-        startPolling();
+function t(key, fallback) {
+    if (i18nDict[key]) {
+        return i18nDict[key];
+    }
+    return fallback || key;
+}
+
+function isHttpUrl(value) {
+    try {
+        var u = new URL(String(value).trim());
+        return u.protocol === 'http:' || u.protocol === 'https:';
+    } catch (e) {
+        return false;
     }
 }
 
+function el(tag, attrs, children) {
+    var node = document.createElement(tag);
+    if (attrs) {
+        Object.keys(attrs).forEach(function (key) {
+            var val = attrs[key];
+            if (val === null || val === undefined || val === false) {
+                return;
+            }
+            if (key === 'className') {
+                node.className = val;
+            } else if (key === 'dataset') {
+                Object.keys(val).forEach(function (d) {
+                    node.dataset[d] = val[d];
+                });
+            } else if (key.indexOf('on') === 0 && typeof val === 'function') {
+                node.addEventListener(key.slice(2).toLowerCase(), val);
+            } else if (key === 'text') {
+                node.textContent = val;
+            } else if (val === true) {
+                node.setAttribute(key, key);
+            } else {
+                node.setAttribute(key, String(val));
+            }
+        });
+    }
+    (children || []).forEach(function (child) {
+        if (child === null || child === undefined) {
+            return;
+        }
+        if (typeof child === 'string') {
+            node.appendChild(document.createTextNode(child));
+        } else {
+            node.appendChild(child);
+        }
+    });
+    return node;
+}
+
+function clearNode(node) {
+    while (node.firstChild) {
+        node.removeChild(node.firstChild);
+    }
+}
+
+function applyI18n() {
+    document.querySelectorAll('[data-i18n]').forEach(function (node) {
+        var key = node.getAttribute('data-i18n');
+        if (i18nDict[key]) {
+            node.textContent = i18nDict[key];
+        }
+    });
+    document.querySelectorAll('[data-i18n-title]').forEach(function (node) {
+        var key = node.getAttribute('data-i18n-title');
+        if (i18nDict[key]) {
+            node.setAttribute('title', i18nDict[key]);
+        }
+    });
+}
+
+async function changeLanguage(lang) {
+    currentLang = lang || 'de';
+    try {
+        var res = await fetch('index.php?action=get_language&lang=' + encodeURIComponent(currentLang));
+        if (!res.ok) {
+            console.error('Language file could not be loaded', currentLang, res.status);
+        }
+        i18nDict = await res.json();
+        if (res.headers.get('X-Lang-Fallback') === '1') {
+            console.error('Language file not found, falling back to German', currentLang);
+        }
+        applyI18n();
+        document.getElementById('lang-select').value = currentLang;
+        document.getElementById('workspace-lang-select').value = currentLang;
+        document.documentElement.setAttribute('lang', currentLang);
+        if (currentRoom) {
+            updateUrlParams();
+            if (lastState) {
+                clientStateHash = '';
+                renderWorkspace(lastState);
+            }
+        } else {
+            updateUrlParams();
+        }
+    } catch (e) {
+        console.error('Error loading language file', e);
+    }
+}
+
+function loginFields() {
+    return {
+        room: document.getElementById('room-id-input').value.trim(),
+        user: document.getElementById('username-input').value.trim(),
+        role: document.getElementById('role-select').value,
+        lang: document.getElementById('lang-select').value
+    };
+}
+
+function updateUrlParams() {
+    var params = new URLSearchParams();
+    if (currentRoom) {
+        params.set('room', currentRoom);
+        params.set('user', currentUser);
+        params.set('role', currentRole || 'user');
+        params.set('lang', currentLang);
+    } else {
+        var fields = loginFields();
+        if (fields.room) params.set('room', fields.room);
+        if (fields.user) params.set('user', fields.user);
+        if (fields.role) params.set('role', fields.role);
+        params.set('lang', fields.lang || currentLang || 'de');
+    }
+    var qs = params.toString();
+    var next = window.location.pathname + (qs ? '?' + qs : '') + window.location.hash;
+    history.replaceState(null, '', next);
+}
+
+function hydrateFromUrl() {
+    var params = new URLSearchParams(window.location.search);
+    var room = params.get('room') || '';
+    var user = params.get('user') || '';
+    var role = params.get('role') || 'user';
+    var lang = params.get('lang') || 'de';
+    if (['de', 'en', 'hu'].indexOf(lang) === -1) {
+        lang = 'de';
+    }
+    if (['user', 'moderator', 'admin'].indexOf(role) === -1) {
+        role = 'user';
+    }
+    document.getElementById('room-id-input').value = room;
+    document.getElementById('username-input').value = user;
+    document.getElementById('role-select').value = role;
+    document.getElementById('lang-select').value = lang;
+    document.getElementById('workspace-lang-select').value = lang;
+}
+
+function canAutoJoin() {
+    var params = new URLSearchParams(window.location.search);
+    return !!(params.get('user') && params.get('room') && params.get('role'));
+}
+
+function setupEventListeners() {
+    document.getElementById('lang-select').addEventListener('change', function (e) {
+        changeLanguage(e.target.value);
+    });
+    document.getElementById('workspace-lang-select').addEventListener('change', function (e) {
+        changeLanguage(e.target.value);
+    });
+
+    ['room-id-input', 'username-input', 'role-select', 'lang-select'].forEach(function (id) {
+        document.getElementById(id).addEventListener('input', updateUrlParams);
+        document.getElementById(id).addEventListener('change', updateUrlParams);
+    });
+
+    document.getElementById('btn-theme-toggle').addEventListener('click', function () {
+        var root = document.documentElement;
+        var next = (root.getAttribute('data-theme') || 'light') === 'light' ? 'dark' : 'light';
+        root.setAttribute('data-theme', next);
+        try { localStorage.setItem('scrumpoker-theme', next); } catch (e) { /* ignore */ }
+    });
+
+    document.getElementById('btn-join').addEventListener('click', function () { joinRoom(false); });
+    document.getElementById('username-input').addEventListener('keydown', function (e) {
+        if (e.key === 'Enter') joinRoom(false);
+    });
+    document.getElementById('room-id-input').addEventListener('keydown', function (e) {
+        if (e.key === 'Enter') joinRoom(false);
+    });
+
+    document.getElementById('btn-logout').addEventListener('click', logout);
+    document.getElementById('btn-reveal').addEventListener('click', function () {
+        updateRoomConfig({ reveal: true });
+    });
+    document.getElementById('btn-reset').addEventListener('click', function () {
+        updateRoomConfig({ reset: true });
+    });
+    document.getElementById('btn-clear').addEventListener('click', function () {
+        updateRoomConfig({ clearAbsent: true });
+    });
+    document.getElementById('input-story-url').addEventListener('change', function (e) {
+        var value = e.target.value.trim();
+        if (currentRole === 'user' && value === '') {
+            e.target.value = (lastState && lastState.storyUrl) ? lastState.storyUrl : '';
+            return;
+        }
+        updateRoomConfig({ storyUrl: value });
+    });
+    document.getElementById('btn-save-config').addEventListener('click', saveDeckConfig);
+
+    var list = document.getElementById('participants-list');
+    list.addEventListener('scroll', function () {
+        isScrollingParticipants = true;
+        clearTimeout(scrollResetTimer);
+        scrollResetTimer = setTimeout(function () {
+            isScrollingParticipants = false;
+        }, 600);
+    });
+}
+
+function csrfHeaders() {
+    return {
+        'Content-Type': 'application/json',
+        'X-CSRF-Token': document.body.getAttribute('data-csrf') || ''
+    };
+}
+
+async function refreshCsrf() {
+    try {
+        var res = await fetch('index.php?action=get_session');
+        var data = await res.json();
+        if (data && data.csrf) {
+            document.body.setAttribute('data-csrf', data.csrf);
+        }
+    } catch (e) {
+        console.error('csrf refresh failed', e);
+    }
+}
+
+function showLoginError(message) {
+    var box = document.getElementById('login-error');
+    if (!message) {
+        box.hidden = true;
+        box.textContent = '';
+        return;
+    }
+    box.hidden = false;
+    box.textContent = message;
+}
+
+async function joinRoom(fromUrl) {
+    if (autoJoining) return;
+    var fields = loginFields();
+    if (!fields.room || !fields.user) {
+        if (!fromUrl) {
+            showLoginError(t('err-missing-fields', 'Bitte Name und Raum angeben.'));
+        }
+        return;
+    }
+    autoJoining = true;
+    showLoginError('');
+    try {
+        var res = await fetch('index.php?action=join_room', {
+            method: 'POST',
+            headers: csrfHeaders(),
+            body: JSON.stringify({ room: fields.room, name: fields.user, role: fields.role })
+        });
+        var data = await res.json();
+        if (!data.success) {
+            if (data.message === 'csrf') {
+                await refreshCsrf();
+                showLoginError(t('err-csrf', 'Sicherheitsprüfung fehlgeschlagen. Bitte Seite neu laden.'));
+                return;
+            }
+            showLoginError(t('err-' + (data.message || 'join'), t('err-join', 'Beitritt fehlgeschlagen.')));
+            return;
+        }
+        currentRoom = data.room;
+        currentUser = data.name;
+        currentRole = data.role;
+        enterWorkspace();
+        updateUrlParams();
+        startPolling();
+    } catch (e) {
+        console.error('join failed', e);
+        showLoginError(t('err-join', 'Beitritt fehlgeschlagen.'));
+    } finally {
+        autoJoining = false;
+    }
+}
+
+function enterWorkspace() {
+    document.body.classList.add('workspace-active');
+    document.getElementById('login-container').hidden = true;
+    document.getElementById('main-layout').hidden = false;
+    refreshChrome();
+}
+
+function refreshChrome() {
+    var title = document.getElementById('display-room-title');
+    title.textContent = t('title-room-prefix', 'Scrumpoker für den Raum') + ' (' + currentRoom + ')';
+    document.getElementById('display-user-info').textContent =
+        currentUser + ' (' + t('role-' + currentRole, currentRole) + ')';
+    var isPriv = currentRole === 'admin' || currentRole === 'moderator';
+    document.getElementById('panel-moderation').hidden = !isPriv || currentBanned;
+    document.getElementById('panel-deck-config').hidden = currentRole !== 'admin' || currentBanned;
+    document.getElementById('panel-rooms').hidden = currentRole !== 'admin' || currentBanned;
+    document.getElementById('input-story-url').disabled = currentBanned;
+}
+
+function leaveWorkspace() {
+    document.body.classList.remove('workspace-active');
+    document.getElementById('login-container').hidden = false;
+    document.getElementById('main-layout').hidden = true;
+    currentRoom = '';
+    currentUser = '';
+    currentRole = '';
+    currentBanned = false;
+    lastState = null;
+    clientStateHash = '';
+    prevRevealed = false;
+    if (activePolling) {
+        clearInterval(activePolling);
+        activePolling = null;
+    }
+}
+
+async function logout() {
+    try {
+        await fetch('index.php?action=logout', {
+            method: 'POST',
+            headers: csrfHeaders(),
+            body: JSON.stringify({})
+        });
+    } catch (e) {
+        console.error('logout failed', e);
+    }
+    leaveWorkspace();
+    await refreshCsrf();
+    history.replaceState(null, '', window.location.pathname + '?lang=' + encodeURIComponent(currentLang));
+}
+
 function startPolling() {
+    if (activePolling) {
+        clearInterval(activePolling);
+    }
     pollState();
-    activePolling = setInterval(pollState, 1200);
+    activePolling = setInterval(pollState, POLL_MS);
 }
 
 async function pollState() {
     if (!currentRoom) return;
     try {
-        const res = await fetch(`index.php?action=get_state&room=${encodeURIComponent(currentRoom)}&name=${encodeURIComponent(currentUser)}`);
-        const result = await res.json();
-        if (result.success) {
-            renderWorkspace(result.data);
+        var res = await fetch('index.php?action=get_state&room=' + encodeURIComponent(currentRoom));
+        var result = await res.json();
+        if (!result.success) {
+            if (result.message === 'session_lost' || result.message === 'room_not_found') {
+                leaveWorkspace();
+                showLoginError(t('err-' + result.message, t('err-session', 'Sitzung beendet.')));
+            }
+            return;
         }
-    } catch(e) { console.error("Sync tracking state iteration dropped.", e); }
-}
-
-function renderWorkspace(state) {
-    const currentHash = JSON.stringify(state);
-    if (clientStateHash === currentHash) {
-        handleTimerExecution(state.timerTarget);
-        return; 
-    }
-    clientStateHash = currentHash;
-
-    // Ticket & Input Updates
-    const displayStory = document.getElementById('story-display');
-    if (state.storyUrl) {
-        if (state.storyUrl.startsWith('http')) {
-            displayStory.innerHTML = `<a href="${state.storyUrl}" target="_blank">${state.storyUrl}</a>`;
-        } else {
-            displayStory.textContent = state.storyUrl;
+        if (result.role) currentRole = result.role;
+        if (result.name) currentUser = result.name;
+        currentBanned = !!result.banned;
+        renderWorkspace(result.data);
+        if (currentRole === 'admin') {
+            refreshRoomList();
         }
-    } else {
-        displayStory.textContent = '-';
-    }
-
-    if (currentRole !== 'admin' && currentRole !== 'moderator') {
-        document.getElementById('select-deck-type').value = state.deckType;
-        document.getElementById('input-story-url').value = state.storyUrl;
-    }
-
-    renderCardsMatrix(state.deckType, state.revealed, state.participants[currentUser]?.vote);
-    renderParticipants(state.participants, state.revealed);
-    handleTimerExecution(state.timerTarget);
-
-    if (state.revealed) {
-        calculateStatistics(state.participants, state.deckType);
-        document.getElementById('panel-stats').style.display = 'block';
-    } else {
-        document.getElementById('panel-stats').style.display = 'none';
+    } catch (e) {
+        console.error('Sync tracking state iteration dropped.', e);
     }
 }
 
-function renderCardsMatrix(deckType, isRevealed, activeVote) {
-    const wrapper = document.getElementById('decks-wrapper');
-    wrapper.innerHTML = '';
-
-    const grid = document.createElement('div');
-    grid.className = 'cards-grid';
-
-    const cards = availableDecks[deckType] || availableDecks['fibonacci'] || [];
-    cards.forEach(cardValue => {
-        const container = document.createElement('div');
-        container.className = 'poker-card';
-        if (activeVote === cardValue) container.classList.add('selected');
-        if (activeVote && activeVote !== cardValue && !isRevealed) container.classList.add('dimmed');
-        if (isRevealed) container.classList.add('locked');
-
-        container.innerHTML = `
-            <div class="card-inner">
-                <span class="c-val">${cardValue}</span>
-                <strong>${cardValue}</strong>
-                <span class="c-val-rev">${cardValue}</span>
-            </div>
-        `;
-
-        if (!isRevealed) {
-            container.addEventListener('click', () => castVote(cardValue));
-        }
-        grid.appendChild(container);
-    });
-    wrapper.appendChild(grid);
-}
-
-async function castVote(value) {
-    await fetch('index.php?action=submit_vote', {
+async function apiPost(action, payload) {
+    var res = await fetch('index.php?action=' + encodeURIComponent(action), {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ room: currentRoom, name: currentUser, vote: value })
+        headers: csrfHeaders(),
+        body: JSON.stringify(payload || {})
     });
+    return res.json();
 }
 
 async function updateRoomConfig(payload) {
     payload.room = currentRoom;
-    payload.name = currentUser;
-    await fetch('index.php?action=update_room', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(payload)
+    try {
+        await apiPost('update_room', payload);
+        pollState();
+    } catch (e) {
+        console.error('update failed', e);
+    }
+}
+
+async function saveDeckConfig() {
+    updateRoomConfig({
+        timerDuration: parseInt(document.getElementById('input-timer-duration').value, 10) || 5,
+        decks: {
+            fibonacci: document.getElementById('input-deck-fibonacci').value,
+            tshirt: document.getElementById('input-deck-tshirt').value,
+            days: document.getElementById('input-deck-days').value
+        }
     });
+}
+
+function fieldIsBusy(id) {
+    var node = document.getElementById(id);
+    return node && document.activeElement === node;
+}
+
+function renderStory(state) {
+    var display = document.getElementById('story-display');
+    clearNode(display);
+    var story = (state.storyUrl || '').trim();
+    if (!story) {
+        display.textContent = '-';
+    } else if (isHttpUrl(story)) {
+        display.appendChild(el('a', {
+            href: story,
+            target: '_blank',
+            rel: 'noopener noreferrer',
+            text: story
+        }));
+    } else {
+        display.textContent = story;
+    }
+    if (!fieldIsBusy('input-story-url')) {
+        document.getElementById('input-story-url').value = story;
+    }
+}
+
+function renderWorkspace(state) {
+    lastState = state;
+    var hash = JSON.stringify(state);
+    handleTimerExecution(state);
+    if (clientStateHash === hash) {
+        return;
+    }
+    clientStateHash = hash;
+    refreshChrome();
+    updateUrlParams();
+
+    renderStory(state);
+    renderCardsMatrix(state);
+    if (!isScrollingParticipants) {
+        renderParticipants(state.participants || {}, !!state.revealed);
+    }
+
+    var revealBtn = document.getElementById('btn-reveal');
+    revealBtn.disabled = !!(state.revealed || state.timerTarget);
+
+    if (currentRole === 'admin') {
+        if (!fieldIsBusy('input-timer-duration')) {
+            document.getElementById('input-timer-duration').value = state.timerDuration || 5;
+        }
+        ['fibonacci', 'tshirt', 'days'].forEach(function (key) {
+            var id = 'input-deck-' + key;
+            if (!fieldIsBusy(id) && state.decks && state.decks[key]) {
+                document.getElementById(id).value = state.decks[key].join(', ');
+            }
+        });
+    }
+
+    if (state.revealed) {
+        calculateStatistics(state);
+        document.getElementById('panel-stats').hidden = false;
+    } else {
+        document.getElementById('panel-stats').hidden = true;
+        resetStatUi();
+    }
+}
+
+function myVote(state) {
+    var participants = state.participants || {};
+    var found = null;
+    Object.keys(participants).forEach(function (id) {
+        if (participants[id].name === currentUser) {
+            found = participants[id];
+        }
+    });
+    return found && found.vote ? found.vote : null;
+}
+
+function triggerFlip(card) {
+    card.classList.remove('flip-anim');
+    void card.offsetWidth;
+    card.classList.add('flip-anim');
+    setTimeout(function () {
+        card.classList.remove('flip-anim');
+    }, 700);
+}
+
+function renderCardsMatrix(state) {
+    var wrapper = document.getElementById('decks-wrapper');
+    clearNode(wrapper);
+    var vote = myVote(state);
+    var locked = !!state.revealed || currentBanned;
+    var justRevealed = !!state.revealed && !prevRevealed;
+    prevRevealed = !!state.revealed;
+    var isPriv = (currentRole === 'admin' || currentRole === 'moderator') && !currentBanned;
+    var decks = state.decks || {};
+    var active = state.activeDecks || {};
+    var labels = {
+        fibonacci: t('deck-fibonacci', 'Fibonacci'),
+        tshirt: t('deck-tshirt', 'T-Shirt'),
+        days: t('deck-days', 'Personentage')
+    };
+
+    ['fibonacci', 'tshirt', 'days'].forEach(function (deckKey) {
+        var section = el('div', { className: 'deck-section' });
+        var head = el('div', { className: 'deck-section-head' });
+        if (isPriv) {
+            var box = el('label', { className: 'deck-toggle' }, [
+                el('input', {
+                    type: 'checkbox',
+                    checked: !!active[deckKey],
+                    onChange: function (e) {
+                        var next = {
+                            fibonacci: !!active.fibonacci,
+                            tshirt: !!active.tshirt,
+                            days: !!active.days
+                        };
+                        next[deckKey] = e.target.checked;
+                        updateRoomConfig({ activeDecks: next });
+                    }
+                }),
+                el('span', { text: labels[deckKey] })
+            ]);
+            head.appendChild(box);
+        } else {
+            head.appendChild(el('span', { className: 'deck-name', text: labels[deckKey] }));
+        }
+        section.appendChild(head);
+
+        if (!active[deckKey]) {
+            if (isPriv) {
+                wrapper.appendChild(section);
+            }
+            return;
+        }
+
+        var grid = el('div', { className: 'cards-grid' });
+        (decks[deckKey] || []).forEach(function (cardValue) {
+            var selected = vote && vote.deck === deckKey && String(vote.value) === String(cardValue);
+            var card = el('div', { className: 'poker-card' });
+            if (selected) card.classList.add('selected');
+            if (vote && !selected && !locked) card.classList.add('dimmed');
+            if (locked) card.classList.add('locked');
+            card.appendChild(el('div', { className: 'card-inner' }, [
+                el('span', { className: 'c-val', text: String(cardValue) }),
+                el('strong', { text: String(cardValue) }),
+                el('span', { className: 'c-val-rev', text: String(cardValue) })
+            ]));
+            if (!locked) {
+                card.addEventListener('click', function () {
+                    triggerFlip(card);
+                    castVote(deckKey, cardValue);
+                });
+            } else if (justRevealed && selected) {
+                triggerFlip(card);
+            }
+            grid.appendChild(card);
+        });
+        section.appendChild(grid);
+        wrapper.appendChild(section);
+    });
+}
+
+async function castVote(deck, value) {
+    try {
+        await apiPost('submit_vote', { room: currentRoom, deck: deck, vote: value });
+        pollState();
+    } catch (e) {
+        console.error('vote failed', e);
+    }
+}
+
+function roleRank(role) {
+    if (role === 'admin') return 0;
+    if (role === 'moderator') return 1;
+    return 2;
 }
 
 function renderParticipants(list, isRevealed) {
-    const container = document.getElementById('participants-list');
-    container.innerHTML = '';
+    var container = document.getElementById('participants-list');
+    var scrollTop = container.scrollTop;
+    clearNode(container);
 
-    Object.values(list).forEach(p => {
-        const item = document.createElement('div');
-        item.className = 'participant-item';
+    var rows = Object.keys(list).map(function (id) {
+        var p = list[id];
+        p.id = p.id || id;
+        return p;
+    });
+    rows.sort(function (a, b) {
+        var d = roleRank(a.role) - roleRank(b.role);
+        if (d !== 0) return d;
+        return String(a.name || '').localeCompare(String(b.name || ''), currentLang, { sensitivity: 'base' });
+    });
 
-        let badgeStyle = p.role === 'admin' ? 'admin-badge' : (p.role === 'moderator' ? 'moderator-badge' : 'user-badge');
-        let badgeTranslated = i18nDict[badgeStyle] || p.role;
+    var isPriv = (currentRole === 'admin' || currentRole === 'moderator') && !currentBanned;
 
-        let statusIndicator = '';
-        if (p.vote !== null) {
+    rows.forEach(function (p) {
+        var item = el('div', { className: 'participant-item' + (p.banned ? ' banned' : '') + (p.online ? '' : ' offline') });
+        var voteNode;
+        if (p.banned) {
+            voteNode = el('span', { className: 'vote-empty', text: '—' });
+        } else if (p.vote) {
             if (isRevealed) {
-                statusIndicator = `<div class="vote-revealed-inline">${p.vote}</div>`;
+                voteNode = el('div', { className: 'vote-revealed-inline', text: String(p.vote.value) });
             } else {
-                statusIndicator = `<div class="mini-card-back">✓</div>`;
+                voteNode = el('div', { className: 'mini-card-back', text: '?' });
             }
         } else {
-            statusIndicator = `<span style="font-size:0.85rem; color:var(--text-muted); font-weight:700;">...</span>`;
+            voteNode = el('span', { className: 'vote-empty', text: '…' });
         }
 
-        let kickAction = '';
-        if ((currentRole === 'admin' || currentRole === 'moderator') && p.name !== currentUser) {
-            kickAction = `<button class="btn-tiny-subtle" title="${i18nDict['kick'] || 'Kick'}" onclick="kickTarget('${p.name}')">×</button>`;
+        var nameWrap = el('div', { className: 'p-name-block' }, [
+            el('strong', { text: p.name || '' }),
+            p.banned ? el('span', { className: 'banned-flag', text: ' (' + t('banned', 'banned') + ')' }) : null,
+            !p.online && !p.banned ? el('span', { className: 'offline-flag', text: ' (' + t('offline', 'offline') + ')' }) : null
+        ]);
+
+        var info = el('div', { className: 'p-info' }, [
+            el('span', { className: 'role-icon role-icon-' + (p.role || 'user'), title: t('role-' + p.role, p.role) }),
+            nameWrap,
+            el('span', { className: 'p-role-text', text: '(' + t('role-' + (p.role || 'user'), p.role) + ')' })
+        ]);
+
+        var actions = el('div', { className: 'p-actions' });
+        if (isPriv && p.id && p.name !== currentUser) {
+            if (p.banned) {
+                actions.appendChild(el('button', {
+                    type: 'button',
+                    className: 'btn-tiny-subtle',
+                    title: t('unban', 'Entbannen'),
+                    text: t('unban', 'Entbannen'),
+                    onClick: function () { updateRoomConfig({ unban: p.id }); }
+                }));
+            } else {
+                actions.appendChild(el('button', {
+                    type: 'button',
+                    className: 'btn-tiny-subtle',
+                    title: t('ban', 'Bannen'),
+                    text: t('ban', 'Bannen'),
+                    onClick: function () { updateRoomConfig({ ban: p.id }); }
+                }));
+            }
+            var select = el('select', { className: 'role-select-mini' });
+            ['user', 'moderator', 'admin'].forEach(function (role) {
+                var opt = el('option', { value: role, text: t('role-' + role, role) });
+                if (role === p.role) opt.selected = true;
+                if (currentRole !== 'admin' && role === 'admin') {
+                    opt.disabled = true;
+                }
+                select.appendChild(opt);
+            });
+            select.addEventListener('change', function () {
+                updateRoomConfig({ changeRole: select.value, target: p.id });
+            });
+            actions.appendChild(select);
         }
 
-        item.innerHTML = `
-            <div class="p-info">
-                ${statusIndicator}
-                <div>
-                    <strong style="display:block; font-size:0.95rem;">${p.name}</strong>
-                    <span style="font-size:0.7rem; font-weight:800; text-transform:uppercase; color:var(--text-muted);">${badgeTranslated}</span>
-                </div>
-            </div>
-            ${kickAction}
-        `;
+        item.appendChild(info);
+        item.appendChild(voteNode);
+        if (actions.childNodes.length) {
+            item.appendChild(actions);
+        }
         container.appendChild(item);
     });
+    container.scrollTop = scrollTop;
 }
 
-async function kickTarget(targetName) {
-    await fetch('index.php?action=kick_user', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ room: currentRoom, name: currentUser, target: targetName })
-    });
-}
+function handleTimerExecution(state) {
+    var panel = document.getElementById('panel-timer-hub');
+    var elNum = document.getElementById('countdown-number');
+    var elProg = document.getElementById('countdown-progress');
+    var targetTime = state && state.timerTarget ? parseInt(state.timerTarget, 10) : 0;
+    var duration = Math.max(1, parseInt(state && state.timerDuration, 10) || 5);
 
-function handleTimerExecution(targetTime) {
-    const elNum = document.getElementById('countdown-number');
-    const elProg = document.getElementById('countdown-progress');
-    
-    if (!targetTime) {
+    if (!targetTime || (state && state.revealed)) {
+        panel.hidden = true;
         elNum.textContent = '--';
         elProg.style.strokeDashoffset = '0';
+        countdownStartedAt = 0;
         return;
     }
 
-    const now = Math.floor(Date.now() / 1000);
-    const left = targetTime - now;
-
-    if (left <= 0) {
-        elNum.textContent = '0';
-        elProg.style.strokeDashoffset = '251.2';
-        if (currentRole === 'admin' || currentRole === 'moderator') {
-            // Automatisches Reveal bei Ablauf ausführen
-            updateRoomConfig({ revealed: true, stopTimer: true });
-        }
-    } else {
-        elNum.textContent = left;
-        let percentage = (left / 30) * 251.2; // Fallback Max-Bound Mapping Base
-        elProg.style.strokeDashoffset = 251.2 - percentage;
-    }
+    panel.hidden = false;
+    var now = Math.floor(Date.now() / 1000);
+    var left = targetTime - now;
+    if (left < 0) left = 0;
+    elNum.textContent = String(left);
+    var ratio = left / duration;
+    if (ratio > 1) ratio = 1;
+    elProg.style.strokeDashoffset = String(CIRCUMFERENCE * (1 - ratio));
 }
 
-function calculateStatistics(participants, deckType) {
-    let votes = Object.values(participants).map(p => p.vote).filter(v => v !== null && v !== '?' && v !== '☕');
-    if (votes.length === 0) {
+function votesFromParticipants(participants) {
+    var votes = [];
+    Object.keys(participants || {}).forEach(function (id) {
+        var p = participants[id];
+        if (!p || p.banned || !p.vote) return;
+        var value = p.vote.value;
+        if (value === null || value === undefined || value === '') return;
+        votes.push({ deck: p.vote.deck, value: String(value) });
+    });
+    return votes;
+}
+
+function calculateStatistics(state) {
+    var votes = votesFromParticipants(state.participants);
+    document.getElementById('stat-count').textContent = String(votes.length);
+    if (!votes.length) {
         resetStatUi();
+        document.getElementById('stat-count').textContent = '0';
         return;
     }
 
-    let numericalVotes = votes.map(v => parseFloat(v)).filter(v => !isNaN(v));
+    var countable = votes.filter(function (v) { return v.value !== '?'; });
+    var numerical = countable.map(function (v) { return parseFloat(v.value); }).filter(function (n) { return !isNaN(n); });
 
-    let avg = '-';
-    let med = '-';
-    if (numericalVotes.length > 0) {
-        numericalVotes.sort((a, b) => a - b);
-        avg = (numericalVotes.reduce((a, b) => a + b, 0) / numericalVotes.length).toFixed(1);
-        
-        let mid = Math.floor(numericalVotes.length / 2);
-        med = numericalVotes.length % 2 !== 0 ? numericalVotes[mid] : ((numericalVotes[mid - 1] + numericalVotes[mid]) / 2).toFixed(1);
+    var avg = '-';
+    var med = '-';
+    var medNum = null;
+    if (numerical.length > 0) {
+        numerical.sort(function (a, b) { return a - b; });
+        avg = (numerical.reduce(function (a, b) { return a + b; }, 0) / numerical.length).toFixed(1);
+        var mid = Math.floor(numerical.length / 2);
+        if (numerical.length % 2 !== 0) {
+            medNum = numerical[mid];
+            med = String(medNum);
+        } else {
+            medNum = (numerical[mid - 1] + numerical[mid]) / 2;
+            med = (medNum % 1 === 0) ? String(medNum) : medNum.toFixed(1);
+        }
     }
 
-    // Modus (Häufigster Wert)
-    let counts = {};
-    let maxCount = 0;
-    let modes = [];
-    votes.forEach(v => {
-        counts[v] = (counts[v] || 0) + 1;
-        if (counts[v] > maxCount) {
-            maxCount = counts[v];
-            modes = [v];
-        } else if (counts[v] === maxCount && !modes.includes(v)) {
-            modes.push(v);
+    var counts = {};
+    var maxCount = 0;
+    var modes = [];
+    countable.forEach(function (v) {
+        counts[v.value] = (counts[v.value] || 0) + 1;
+        if (counts[v.value] > maxCount) {
+            maxCount = counts[v.value];
+            modes = [v.value];
+        } else if (counts[v.value] === maxCount && modes.indexOf(v.value) === -1) {
+            modes.push(v.value);
         }
     });
 
     document.getElementById('stat-average').textContent = avg;
     document.getElementById('stat-median').textContent = med;
-    document.getElementById('stat-modus').textContent = modes.join(', ');
+    document.getElementById('stat-modus').textContent = modes.join(', ') || '-';
 
-    // AI Recommender Simulation Matrix
-    const recValue = document.getElementById('rec-value');
-    const recReason = document.getElementById('rec-reason');
+    var recValue = document.getElementById('rec-value');
+    var recReason = document.getElementById('rec-reason');
+    var allCards = [];
+    Object.keys(state.decks || {}).forEach(function (k) {
+        if (state.activeDecks && state.activeDecks[k]) {
+            allCards = allCards.concat(state.decks[k] || []);
+        }
+    });
+    var medianMatchesCard = medNum !== null && allCards.some(function (c) {
+        return String(c) === String(medNum) || parseFloat(c) === medNum;
+    });
 
-    if (modes.length === 1) {
+    if (medianMatchesCard) {
+        recValue.textContent = String(medNum);
+        recReason.textContent = t('rec-exact', 'Median entspricht einer Karte.');
+    } else if (modes.length === 1) {
         recValue.textContent = modes[0];
-        recReason.textContent = i18nDict['rec-mode'] || 'Suggested by statistical frequency.';
-    } else if (modes.length > 1 && numericalVotes.length > 0) {
-        recValue.textContent = Math.round(med);
-        recReason.textContent = i18nDict['rec-tied'] || 'Split decision. Recommend discussion.';
+        recReason.textContent = t('rec-mode', 'Eindeutig häufigste Karte.');
+    } else if (modes.length > 1) {
+        recValue.textContent = modes.join(', ');
+        recReason.textContent = t('rec-tied', 'Geteilte Häufigkeit, Diskussion empfohlen.');
     } else {
-        recValue.textContent = votes[0] || '-';
-        recReason.textContent = i18nDict['rec-exact'] || 'Consensus estimation dynamic.';
+        recValue.textContent = countable[0] ? countable[0].value : '-';
+        recReason.textContent = t('rec-exact', 'Konsens.');
     }
 
-    // Distribution Bars Renderer
-    const distContainer = document.getElementById('distribution-bars');
-    distContainer.innerHTML = '';
-    
-    let totalVotes = votes.length;
-    let rawCards = availableDecks[deckType] || [];
-    
-    rawCards.forEach(c => {
-        if (counts[c]) {
-            const count = counts[c];
-            const pct = (count / totalVotes) * 100;
-            const isHighest = modes.includes(c);
-
-            const row = document.createElement('div');
-            row.className = `distribution-row ${isHighest ? 'highest-rank' : ''}`;
-            row.innerHTML = `
-                <div class="dist-card-badge">${c}</div>
-                <div class="dist-bar-wrapper"><div class="dist-bar-fill" style="width: ${pct}%"></div></div>
-                <div class="dist-count-text">${count}x (${Math.round(pct)}%)</div>
-            `;
-            distContainer.appendChild(row);
-        }
+    var distContainer = document.getElementById('distribution-bars');
+    clearNode(distContainer);
+    var total = countable.length || 1;
+    var seen = {};
+    allCards.forEach(function (c) {
+        if (!counts[c] || seen[c]) return;
+        seen[c] = true;
+        var count = counts[c];
+        var pct = (count / total) * 100;
+        var row = el('div', { className: 'distribution-row' + (modes.indexOf(String(c)) !== -1 ? ' highest-rank' : '') });
+        row.appendChild(el('div', { className: 'dist-card-badge', text: String(c) }));
+        var barWrap = el('div', { className: 'dist-bar-wrapper' });
+        barWrap.appendChild(el('div', { className: 'dist-bar-fill', style: 'width: ' + pct + '%' }));
+        row.appendChild(barWrap);
+        row.appendChild(el('div', { className: 'dist-count-text', text: count + 'x (' + Math.round(pct) + '%)' }));
+        distContainer.appendChild(row);
     });
 }
 
 function resetStatUi() {
+    document.getElementById('stat-count').textContent = '-';
     document.getElementById('stat-average').textContent = '-';
     document.getElementById('stat-median').textContent = '-';
     document.getElementById('stat-modus').textContent = '-';
     document.getElementById('rec-value').textContent = '-';
-    document.getElementById('rec-reason').textContent = i18nDict['rec-no-votes'] || 'Awaiting votes...';
-    document.getElementById('distribution-bars').innerHTML = '';
+    document.getElementById('rec-reason').textContent = t('rec-no-votes', 'Warte auf Stimmabgabe...');
+    clearNode(document.getElementById('distribution-bars'));
+}
+
+var roomListBusy = false;
+async function refreshRoomList() {
+    if (roomListBusy || currentRole !== 'admin') return;
+    roomListBusy = true;
+    try {
+        var result = await apiPost('list_rooms', { room: currentRoom });
+        if (!result.success) return;
+        var box = document.getElementById('rooms-list');
+        clearNode(box);
+        if (!result.rooms || !result.rooms.length) {
+            box.appendChild(el('p', { className: 'empty-hint', text: t('empty-rooms', 'Keine Räume.') }));
+            return;
+        }
+        result.rooms.forEach(function (room) {
+            var row = el('div', { className: 'room-row' });
+            row.appendChild(el('div', { className: 'room-meta' }, [
+                el('strong', { text: room.name }),
+                el('span', { text: ' · ' + room.online + '/' + room.participants })
+            ]));
+            row.appendChild(el('button', {
+                type: 'button',
+                className: 'btn-tiny-subtle',
+                title: t('btn-delete-room', 'Raum löschen'),
+                text: t('btn-delete-room', 'Löschen'),
+                onClick: function () {
+                    if (!confirm(t('confirm-delete-room', 'Raum wirklich löschen?'))) return;
+                    apiPost('delete_room', { room: currentRoom, target: room.name }).then(function () {
+                        if (room.name === currentRoom) {
+                            leaveWorkspace();
+                            showLoginError(t('err-room_not_found', 'Raum nicht gefunden.'));
+                        } else {
+                            refreshRoomList();
+                        }
+                    });
+                }
+            }));
+            box.appendChild(row);
+        });
+    } catch (e) {
+        console.error('room list failed', e);
+    } finally {
+        roomListBusy = false;
+    }
 }
