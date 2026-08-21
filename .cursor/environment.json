@@ -1,0 +1,14 @@
+{
+  "name": "scrumpoker",
+  "install": "sudo apt-get update && sudo DEBIAN_FRONTEND=noninteractive apt-get install -y php-cli && php --version",
+  "terminals": [
+    {
+      "name": "php-server",
+      "command": "php -S 0.0.0.0:8000 -t .",
+      "description": "Scrum Poker PHP dev server. Open http://localhost:8000/index.php in the browser."
+    }
+  ],
+  "ports": [
+    { "name": "web", "port": 8000 }
+  ]
+}
