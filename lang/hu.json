@@ -1,5 +1,5 @@
 {
-  "login-title": "Scrum Poker Pro",
+  "login-title": "Scrum Poker",
   "lbl-room": "Szoba azonosító",
   "lbl-name": "Neved",
   "lbl-role": "Szerepköröd",
@@ -15,8 +15,10 @@
   "btn-reveal": "Felfedés",
   "btn-reset": "Visszaállítás",
   "btn-clear": "Törlés",
+  "lbl-allow-vote-change": "Kártyaváltás felfedés után engedélyezve",
   "cards-title": "Kártyák",
   "story-title": "Story",
+  "story-empty": "Még nincs story — adj meg linket vagy ticket azonosítót.",
   "lbl-story-url": "Story-link / jegyazonosító",
   "countdown-title": "Visszaszámlálás",
   "participants-title": "Csapat áttekintése",

@@ -73,6 +73,7 @@ function scrumDefaultRoom() {
             'days' => false,
         ],
         'decks' => scrumDefaultDecks(),
+        'allowVoteChangeAfterReveal' => false,
         'participants' => [],
     ];
 }
@@ -87,6 +88,7 @@ function scrumNormalizeRoom($room) {
     $out['revealed'] = !empty($out['revealed']);
     $out['timerTarget'] = isset($out['timerTarget']) && $out['timerTarget'] !== null ? (int)$out['timerTarget'] : null;
     $out['timerDuration'] = max(1, (int)($out['timerDuration'] ?? 5));
+    $out['allowVoteChangeAfterReveal'] = !empty($out['allowVoteChangeAfterReveal']);
     $out['activeDecks'] = array_merge($base['activeDecks'], is_array($out['activeDecks'] ?? null) ? $out['activeDecks'] : []);
     $out['decks'] = array_merge($base['decks'], is_array($out['decks'] ?? null) ? $out['decks'] : []);
     $out['participants'] = is_array($out['participants'] ?? null) ? $out['participants'] : [];
@@ -410,7 +412,7 @@ function scrumSubmitVote(&$rooms, $uid, $roomName, $deck, $value) {
     if (!empty($me['banned'])) {
         return ['success' => false, 'message' => 'banned'];
     }
-    if (!empty($rooms[$roomName]['revealed'])) {
+    if (!empty($rooms[$roomName]['revealed']) && empty($rooms[$roomName]['allowVoteChangeAfterReveal'])) {
         return ['success' => false, 'message' => 'locked'];
     }
 
@@ -472,7 +474,7 @@ function scrumUpdateRoom(&$rooms, $uid, $input) {
 
     $needsPrivilege = isset($input['reveal']) || isset($input['reset']) || isset($input['activeDecks'])
         || isset($input['clearAbsent']) || isset($input['ban']) || isset($input['unban'])
-        || isset($input['changeRole']);
+        || isset($input['changeRole']) || isset($input['allowVoteChangeAfterReveal']);
     $needsAdmin = isset($input['timerDuration']) || isset($input['decks']);
 
     if ($needsPrivilege && !scrumRequirePrivilege($rooms[$roomName], $uid)) {
@@ -508,6 +510,10 @@ function scrumUpdateRoom(&$rooms, $uid, $input) {
             $rooms[$roomName]['activeDecks']['fibonacci'] = true;
         }
         scrumResetVotes($rooms[$roomName]);
+    }
+
+    if (isset($input['allowVoteChangeAfterReveal'])) {
+        $rooms[$roomName]['allowVoteChangeAfterReveal'] = !empty($input['allowVoteChangeAfterReveal']);
     }
 
     if (isset($input['timerDuration'])) {

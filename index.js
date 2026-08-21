@@ -303,6 +303,9 @@ function setupEventListeners() {
     document.getElementById('btn-clear').addEventListener('click', function () {
         updateRoomConfig({ clearAbsent: true });
     });
+    document.getElementById('chk-allow-vote-change').addEventListener('change', function (e) {
+        updateRoomConfig({ allowVoteChangeAfterReveal: e.target.checked });
+    });
     document.getElementById('input-story-url').addEventListener('change', function (e) {
         var value = e.target.value.trim();
         if (currentRole === 'user' && value === '') {
@@ -423,9 +426,17 @@ function enterWorkspace() {
 
 function refreshChrome() {
     var title = document.getElementById('display-room-title');
-    title.textContent = t('title-room-prefix', 'Scrumpoker für den Raum') + ' (' + currentRoom + ')';
-    document.getElementById('display-user-info').textContent =
-        currentUser + ' (' + t('role-' + currentRole, currentRole) + ')';
+    clearNode(title);
+    title.appendChild(document.createTextNode('Scrum Poker '));
+    title.appendChild(el('span', { className: 'header-room-id', text: currentRoom }));
+
+    var initial = (currentUser || '?').charAt(0).toUpperCase();
+    document.getElementById('user-avatar').textContent = initial;
+    document.getElementById('user-name').textContent = currentUser || '';
+    var rolePill = document.getElementById('user-role-pill');
+    rolePill.textContent = t('role-' + currentRole, currentRole);
+    rolePill.className = 'role-pill role-pill-' + (currentRole || 'user');
+
     var isPriv = currentRole === 'admin' || currentRole === 'moderator';
     document.getElementById('panel-moderation').hidden = !isPriv || currentBanned;
     document.getElementById('panel-deck-config').hidden = currentRole !== 'admin' || currentBanned;
@@ -562,16 +573,20 @@ function renderStory(state) {
     clearNode(display);
     var story = (state.storyUrl || '').trim();
     if (!story) {
-        display.textContent = '-';
-    } else if (isHttpUrl(story)) {
-        display.appendChild(el('a', {
-            href: story,
-            target: '_blank',
-            rel: 'noopener noreferrer',
-            text: story
-        }));
+        display.className = 'story-empty';
+        display.textContent = t('story-empty', 'Noch keine Story — Link oder Ticket-ID eintragen.');
     } else {
-        display.textContent = story;
+        display.className = '';
+        if (isHttpUrl(story)) {
+            display.appendChild(el('a', {
+                href: story,
+                target: '_blank',
+                rel: 'noopener noreferrer',
+                text: story
+            }));
+        } else {
+            display.textContent = story;
+        }
     }
     if (!fieldIsBusy('input-story-url')) {
         document.getElementById('input-story-url').value = story;
@@ -602,6 +617,11 @@ function renderWorkspace(state) {
     var revealBtn = document.getElementById('btn-reveal');
     revealBtn.disabled = !!(state.revealed || state.timerTarget);
 
+    var allowChangeBox = document.getElementById('chk-allow-vote-change');
+    if (allowChangeBox && !fieldIsBusy('chk-allow-vote-change')) {
+        allowChangeBox.checked = !!state.allowVoteChangeAfterReveal;
+    }
+
     if (currentRole === 'admin') {
         if (!fieldIsBusy('input-timer-duration')) {
             document.getElementById('input-timer-duration').value = state.timerDuration || 5;
@@ -621,6 +641,12 @@ function renderWorkspace(state) {
         document.getElementById('panel-stats').hidden = true;
         resetStatUi();
     }
+}
+
+function areVotesLocked(state) {
+    if (currentBanned) return true;
+    if (!state.revealed) return false;
+    return !state.allowVoteChangeAfterReveal;
 }
 
 function myVote(state) {
@@ -706,8 +732,8 @@ function renderCardsMatrix(state) {
     var wrapper = document.getElementById('decks-wrapper');
     clearNode(wrapper);
     var vote = myVote(state);
-    var locked = !!state.revealed || currentBanned;
-    var justRevealed = !!state.revealed && !prevRevealed;
+    var locked = areVotesLocked(state);
+    var justRevealed = !!state.revealed && !prevRevealed && locked;
     prevRevealed = !!state.revealed;
     var isPriv = (currentRole === 'admin' || currentRole === 'moderator') && !currentBanned;
     var decks = state.decks || {};
@@ -764,8 +790,12 @@ function renderCardsMatrix(state) {
                     el('strong', { text: String(cardValue) }),
                     el('span', { className: 'c-val-rev', text: String(cardValue) })
                 ]),
-                el('div', { className: 'card-face card-back' }, [
-                    el('strong', { text: '?' })
+                el('div', { className: 'card-face card-back', 'aria-hidden': 'true' }, [
+                    el('span', { className: 'card-back-corner card-back-corner-tl' }),
+                    el('span', { className: 'card-back-corner card-back-corner-tr' }),
+                    el('span', { className: 'card-back-corner card-back-corner-bl' }),
+                    el('span', { className: 'card-back-corner card-back-corner-br' }),
+                    el('span', { className: 'card-back-emblem' })
                 ])
             ]));
             if (!locked) {
@@ -865,22 +895,33 @@ function renderParticipants(list, isRevealed) {
             if (isRevealed) {
                 voteNode = el('div', { className: 'vote-revealed-inline', text: String(p.vote.value) });
             } else {
-                voteNode = el('div', { className: 'mini-card-back', text: '?' });
+                voteNode = el('div', { className: 'mini-card-back' }, [
+                    el('span', { className: 'mini-back-emblem' })
+                ]);
             }
         } else {
             voteNode = el('span', { className: 'vote-empty', text: '…' });
         }
 
-        var nameWrap = el('div', { className: 'p-name-block' }, [
-            el('strong', { text: p.name || '' }),
-            p.banned ? el('span', { className: 'banned-flag', text: ' (' + t('banned', 'banned') + ')' }) : null,
-            !p.online && !p.banned ? el('span', { className: 'offline-flag', text: ' (' + t('offline', 'offline') + ')' }) : null
-        ]);
+        var nameChildren = [el('strong', { text: p.name || '' })];
+        if (p.role === 'admin' || p.role === 'moderator') {
+            nameChildren.push(el('span', {
+                className: 'participant-role-pill role-pill-' + p.role,
+                text: t('role-' + p.role, p.role)
+            }));
+        }
+        if (p.banned) {
+            nameChildren.push(el('span', { className: 'banned-flag', text: ' (' + t('banned', 'banned') + ')' }));
+        } else if (!p.online) {
+            nameChildren.push(el('span', { className: 'offline-flag', text: ' (' + t('offline', 'offline') + ')' }));
+        }
 
         var info = el('div', { className: 'p-info' }, [
-            el('span', { className: 'role-icon role-icon-' + (p.role || 'user'), title: t('role-' + p.role, p.role) }),
-            nameWrap,
-            el('span', { className: 'p-role-text', text: '(' + t('role-' + (p.role || 'user'), p.role) + ')' })
+            el('span', {
+                className: 'online-dot',
+                title: p.online ? t('online', 'online') : t('offline', 'offline')
+            }),
+            el('div', { className: 'p-name-block' }, nameChildren)
         ]);
 
         var actions = el('div', { className: 'p-actions' });

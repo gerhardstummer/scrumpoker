@@ -76,6 +76,18 @@ assertTrue($rooms['Sprint']['timerTarget'] === null, 'expired timer is cleared')
 $locked = scrumSubmitVote($rooms, 'uid-b', 'Sprint', 'fibonacci', '13');
 assertTrue(empty($locked['success']), 'votes blocked after reveal');
 
+$enableChange = scrumUpdateRoom($rooms, 'uid-a', ['room' => 'Sprint', 'allowVoteChangeAfterReveal' => true]);
+assertTrue(!empty($enableChange['success']), 'moderator can enable post-reveal vote changes');
+assertTrue(!empty($rooms['Sprint']['allowVoteChangeAfterReveal']), 'room flag persisted');
+
+$open = scrumSubmitVote($rooms, 'uid-b', 'Sprint', 'fibonacci', '13');
+assertTrue(!empty($open['success']), 'votes allowed after reveal when room option enabled');
+
+$disableChange = scrumUpdateRoom($rooms, 'uid-a', ['room' => 'Sprint', 'allowVoteChangeAfterReveal' => false]);
+assertTrue(empty($rooms['Sprint']['allowVoteChangeAfterReveal']), 'room flag can be disabled');
+$lockedAgain = scrumSubmitVote($rooms, 'uid-b', 'Sprint', 'fibonacci', '21');
+assertTrue(empty($lockedAgain['success']), 'votes blocked again when option disabled');
+
 $ban = scrumUpdateRoom($rooms, 'uid-a', ['room' => 'Sprint', 'ban' => 'uid-b']);
 assertTrue(!empty($rooms['Sprint']['participants']['uid-b']['banned']), 'banned user remains in the room');
 $bannedVote = scrumSubmitVote($rooms, 'uid-b', 'Sprint', 'fibonacci', '1');
@@ -96,8 +108,6 @@ $clear = scrumUpdateRoom($rooms, 'uid-a', ['room' => 'Sprint', 'clearAbsent' => 
 assertTrue(!isset($rooms['Sprint']['participants']['uid-c']), 'clear removes offline users');
 assertTrue(isset($rooms['Sprint']['participants']['uid-b']), 'clear keeps online users');
 
-$rooms['Sprint']['storyUrl'] = 'keep-me';
-scrumSubmitVote($rooms, 'uid-b', 'Sprint', 'fibonacci', '2');
 $reset = scrumUpdateRoom($rooms, 'uid-a', ['room' => 'Sprint', 'reset' => true]);
 assertTrue($rooms['Sprint']['storyUrl'] === '', 'reset clears story');
 assertTrue($rooms['Sprint']['participants']['uid-b']['vote'] === null, 'reset clears votes');

@@ -119,7 +119,7 @@ header('Content-Type: text/html; charset=utf-8');
     <div id="login-container" class="login-container">
         <div class="login-card glass">
             <div class="login-card-head">
-                <h2 data-i18n="login-title">Scrum Poker Pro</h2>
+                <h2><span data-i18n="login-title">Scrum Poker</span></h2>
                 <select id="lang-select" aria-label="Language">
                     <option value="de">Deutsch</option>
                     <option value="en">English</option>
@@ -153,19 +153,39 @@ header('Content-Type: text/html; charset=utf-8');
 
     <div id="main-layout" class="main-layout" hidden>
         <div class="left-column">
-            <header class="glass">
-                <h1 id="display-room-title">Scrumpoker für den Raum</h1>
+            <header class="glass app-header">
+                <div class="header-brand">
+                    <h1 id="display-room-title">Scrum Poker</h1>
+                </div>
                 <div class="header-actions">
-                    <p id="display-user-info"></p>
+                    <div class="user-pill" id="display-user-info">
+                        <span class="user-avatar" id="user-avatar">?</span>
+                        <span class="user-name" id="user-name"></span>
+                        <span class="role-pill" id="user-role-pill"></span>
+                    </div>
                     <select id="workspace-lang-select" aria-label="Language">
                         <option value="de">Deutsch</option>
                         <option value="en">English</option>
                         <option value="hu">Magyar</option>
                     </select>
-                    <button type="button" id="btn-theme-toggle" class="btn-outline" data-i18n-title="btn-theme">🌓</button>
-                    <button type="button" id="btn-logout" class="btn-outline" data-i18n="btn-logout">Abmelden</button>
+                    <button type="button" id="btn-theme-toggle" class="btn-icon" data-i18n-title="btn-theme" aria-label="Theme">
+                        <svg class="icon-moon" viewBox="0 0 24 24" aria-hidden="true"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg>
+                        <svg class="icon-sun" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="5"/><line x1="12" y1="1" x2="12" y2="3"/><line x1="12" y1="21" x2="12" y2="23"/><line x1="4.22" y1="4.22" x2="5.64" y2="5.64"/><line x1="18.36" y1="18.36" x2="19.78" y2="19.78"/><line x1="1" y1="12" x2="3" y2="12"/><line x1="21" y1="12" x2="23" y2="12"/><line x1="4.22" y1="19.78" x2="5.64" y2="18.36"/><line x1="18.36" y1="5.64" x2="19.78" y2="4.22"/></svg>
+                    </button>
+                    <button type="button" id="btn-logout" class="btn-icon" data-i18n-title="btn-logout" aria-label="Abmelden">
+                        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/></svg>
+                    </button>
                 </div>
             </header>
+
+            <div class="panel glass panel-story-hero" id="panel-story">
+                <span class="panel-label" data-i18n="story-title">Story</span>
+                <div id="story-display"></div>
+                <div class="form-group story-edit">
+                    <label data-i18n="lbl-story-url" for="input-story-url">Story-Link / Ticket-ID</label>
+                    <input type="text" id="input-story-url" maxlength="500">
+                </div>
+            </div>
 
             <div class="panel glass" id="panel-moderation" hidden>
                 <span class="panel-label" data-i18n="moderation-title">Moderation</span>
@@ -174,20 +194,16 @@ header('Content-Type: text/html; charset=utf-8');
                     <button type="button" id="btn-reset" class="btn-outline" data-i18n="btn-reset">Zurücksetzen</button>
                     <button type="button" id="btn-clear" class="btn-secondary" data-i18n="btn-clear">Clear</button>
                 </div>
+                <label class="toggle-switch">
+                    <input type="checkbox" id="chk-allow-vote-change">
+                    <span class="toggle-track"><span class="toggle-thumb"></span></span>
+                    <span class="toggle-label" data-i18n="lbl-allow-vote-change">Karten nach Aufdecken änderbar</span>
+                </label>
             </div>
 
             <div class="panel glass" id="panel-cards">
                 <span class="panel-label" data-i18n="cards-title">Karten</span>
                 <div id="decks-wrapper"></div>
-            </div>
-
-            <div class="panel glass" id="panel-story">
-                <span class="panel-label" data-i18n="story-title">Story</span>
-                <div id="story-display">-</div>
-                <div class="form-group story-edit">
-                    <label data-i18n="lbl-story-url" for="input-story-url">Story-Link / Ticket-ID</label>
-                    <input type="text" id="input-story-url" maxlength="500">
-                </div>
             </div>
         </div>
 
@@ -211,10 +227,10 @@ header('Content-Type: text/html; charset=utf-8');
             <div class="panel glass" id="panel-stats" hidden>
                 <span class="panel-label" data-i18n="stats-title">Statistische Auswertung</span>
                 <div class="stats-poker-grid">
-                    <div class="mini-card-stat"><small data-i18n="lbl-count">Anzahl</small><strong id="stat-count">-</strong></div>
-                    <div class="mini-card-stat"><small data-i18n="lbl-average">Schnitt</small><strong id="stat-average">-</strong></div>
-                    <div class="mini-card-stat"><small data-i18n="lbl-median">Median</small><strong id="stat-median">-</strong></div>
-                    <div class="mini-card-stat"><small data-i18n="lbl-modus">Modus</small><strong id="stat-modus">-</strong></div>
+                    <div class="mini-card-stat"><span class="stat-icon" aria-hidden="true">#</span><div class="stat-body"><small data-i18n="lbl-count">Anzahl</small><strong id="stat-count">-</strong></div></div>
+                    <div class="mini-card-stat"><span class="stat-icon" aria-hidden="true">Ø</span><div class="stat-body"><small data-i18n="lbl-average">Schnitt</small><strong id="stat-average">-</strong></div></div>
+                    <div class="mini-card-stat"><span class="stat-icon" aria-hidden="true">~</span><div class="stat-body"><small data-i18n="lbl-median">Median</small><strong id="stat-median">-</strong></div></div>
+                    <div class="mini-card-stat"><span class="stat-icon" aria-hidden="true">◆</span><div class="stat-body"><small data-i18n="lbl-modus">Modus</small><strong id="stat-modus">-</strong></div></div>
                 </div>
                 <div class="recommendation-box">
                     <div class="rec-icon" aria-hidden="true">★</div>

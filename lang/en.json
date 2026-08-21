@@ -1,5 +1,5 @@
 {
-  "login-title": "Scrum Poker Pro",
+  "login-title": "Scrum Poker",
   "lbl-room": "Room ID",
   "lbl-name": "Your name",
   "lbl-role": "Your role",
@@ -15,8 +15,10 @@
   "btn-reveal": "Reveal",
   "btn-reset": "Reset",
   "btn-clear": "Clear",
+  "lbl-allow-vote-change": "Allow card changes after reveal",
   "cards-title": "Cards",
   "story-title": "Story",
+  "story-empty": "No story yet — enter a link or ticket ID.",
   "lbl-story-url": "Story link / ticket ID",
   "countdown-title": "Countdown",
   "participants-title": "Team overview",
