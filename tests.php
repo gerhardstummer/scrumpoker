@@ -31,7 +31,13 @@ assertTrue($a['role'] === 'moderator', 'creator requesting user becomes moderato
 assertTrue(isset($rooms['Sprint']), 'room is created');
 
 $b = scrumJoinRoom($rooms, 'uid-b', 'Sprint', 'Ben', 'admin');
-assertTrue($b['success'] && $b['role'] === 'user', 'second user cannot self-assign admin');
+assertTrue($b['success'] && $b['role'] === 'user', 'second user cannot self-assign admin without password');
+
+$admin = scrumJoinRoom($rooms, 'uid-e', 'Sprint', 'Eve', 'admin', 'geheim');
+assertTrue($admin['success'] && $admin['role'] === 'admin', 'admin password grants admin in existing room');
+
+$mod = scrumJoinRoom($rooms, 'uid-d', 'Sprint', 'Dan', 'moderator');
+assertTrue($mod['success'] && $mod['role'] === 'moderator', 'anyone can join as moderator');
 
 $c = scrumJoinRoom($rooms, 'uid-c', 'Sprint', 'Anna', 'user');
 assertTrue($c['name'] !== 'Anna', 'duplicate display names are uniquified');

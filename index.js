@@ -16,8 +16,16 @@ var lastState = null;
 var countdownStartedAt = 0;
 var isScrollingParticipants = false;
 var scrollResetTimer = null;
+var participantsPanelLocked = false;
+var participantsUnlockTimer = null;
+var participantsRenderPending = false;
 var autoJoining = false;
+var joinPassword = '';
 
+var FLIP_DURATION_MS = 500;
+var activeFlipCount = 0;
+var voteToken = 0;
+var pendingVote = null;
 var CIRCUMFERENCE = 251.2;
 var POLL_MS = 1000;
 
@@ -25,6 +33,7 @@ document.addEventListener('DOMContentLoaded', function () {
     applyStoredTheme();
     setupEventListeners();
     hydrateFromUrl();
+    updateUrlParams();
     changeLanguage(document.getElementById('lang-select').value).then(function () {
         if (canAutoJoin()) {
             joinRoom(true);
@@ -32,11 +41,27 @@ document.addEventListener('DOMContentLoaded', function () {
     });
 });
 
+function normalizeTheme(value) {
+    return String(value || '').toLowerCase() === 'dark' ? 'dark' : 'light';
+}
+
+function getCurrentTheme() {
+    return normalizeTheme(document.documentElement.getAttribute('data-theme'));
+}
+
+function setAppTheme(theme, persist) {
+    theme = normalizeTheme(theme);
+    document.documentElement.setAttribute('data-theme', theme);
+    if (persist !== false) {
+        try { localStorage.setItem('scrumpoker-theme', theme); } catch (e) { /* ignore */ }
+    }
+}
+
 function applyStoredTheme() {
     try {
         var stored = localStorage.getItem('scrumpoker-theme');
         if (stored === 'dark' || stored === 'light') {
-            document.documentElement.setAttribute('data-theme', stored);
+            setAppTheme(stored, false);
         }
     } catch (e) { /* ignore */ }
 }
@@ -145,6 +170,36 @@ async function changeLanguage(lang) {
     }
 }
 
+function getJoinPassword() {
+    var roleSelect = document.getElementById('role-select');
+    if (roleSelect && roleSelect.value === 'admin') {
+        var fromInput = document.getElementById('admin-password-input');
+        if (fromInput && fromInput.value.trim() !== '') {
+            return fromInput.value.trim();
+        }
+    }
+    var fromUrl = new URLSearchParams(window.location.search).get('password');
+    return (fromUrl !== null && fromUrl !== '') ? fromUrl : joinPassword;
+}
+
+function syncAdminPasswordField() {
+    var roleSelect = document.getElementById('role-select');
+    var group = document.getElementById('admin-password-group');
+    var input = document.getElementById('admin-password-input');
+    if (!roleSelect || !group || !input) {
+        return;
+    }
+    var isAdmin = roleSelect.value === 'admin';
+    group.hidden = !isAdmin;
+    if (isAdmin) {
+        if (!input.value && joinPassword) {
+            input.value = joinPassword;
+        }
+    } else {
+        input.value = '';
+    }
+}
+
 function loginFields() {
     return {
         room: document.getElementById('room-id-input').value.trim(),
@@ -168,6 +223,7 @@ function updateUrlParams() {
         if (fields.role) params.set('role', fields.role);
         params.set('lang', fields.lang || currentLang || 'de');
     }
+    params.set('theme', getCurrentTheme());
     var qs = params.toString();
     var next = window.location.pathname + (qs ? '?' + qs : '') + window.location.hash;
     history.replaceState(null, '', next);
@@ -190,11 +246,16 @@ function hydrateFromUrl() {
     document.getElementById('role-select').value = role;
     document.getElementById('lang-select').value = lang;
     document.getElementById('workspace-lang-select').value = lang;
+    joinPassword = params.get('password') || '';
+    if (params.has('theme')) {
+        setAppTheme(params.get('theme'));
+    }
+    syncAdminPasswordField();
 }
 
 function canAutoJoin() {
     var params = new URLSearchParams(window.location.search);
-    return !!(params.get('user') && params.get('room') && params.get('role'));
+    return !!(params.get('user') && params.get('room'));
 }
 
 function setupEventListeners() {
@@ -205,16 +266,20 @@ function setupEventListeners() {
         changeLanguage(e.target.value);
     });
 
-    ['room-id-input', 'username-input', 'role-select', 'lang-select'].forEach(function (id) {
+    document.getElementById('role-select').addEventListener('change', function () {
+        syncAdminPasswordField();
+        updateUrlParams();
+    });
+
+    ['room-id-input', 'username-input', 'lang-select'].forEach(function (id) {
         document.getElementById(id).addEventListener('input', updateUrlParams);
         document.getElementById(id).addEventListener('change', updateUrlParams);
     });
 
     document.getElementById('btn-theme-toggle').addEventListener('click', function () {
-        var root = document.documentElement;
-        var next = (root.getAttribute('data-theme') || 'light') === 'light' ? 'dark' : 'light';
-        root.setAttribute('data-theme', next);
-        try { localStorage.setItem('scrumpoker-theme', next); } catch (e) { /* ignore */ }
+        var next = getCurrentTheme() === 'light' ? 'dark' : 'light';
+        setAppTheme(next);
+        updateUrlParams();
     });
 
     document.getElementById('btn-join').addEventListener('click', function () { joinRoom(false); });
@@ -222,6 +287,9 @@ function setupEventListeners() {
         if (e.key === 'Enter') joinRoom(false);
     });
     document.getElementById('room-id-input').addEventListener('keydown', function (e) {
+        if (e.key === 'Enter') joinRoom(false);
+    });
+    document.getElementById('admin-password-input').addEventListener('keydown', function (e) {
         if (e.key === 'Enter') joinRoom(false);
     });
 
@@ -252,6 +320,21 @@ function setupEventListeners() {
         scrollResetTimer = setTimeout(function () {
             isScrollingParticipants = false;
         }, 600);
+    });
+    list.addEventListener('mousedown', function (e) {
+        if (e.target.classList && e.target.classList.contains('role-select-mini')) {
+            lockParticipantsPanel();
+        }
+    });
+    list.addEventListener('focusin', function (e) {
+        if (e.target.classList && e.target.classList.contains('role-select-mini')) {
+            lockParticipantsPanel();
+        }
+    });
+    list.addEventListener('focusout', function (e) {
+        if (e.target.classList && e.target.classList.contains('role-select-mini')) {
+            scheduleUnlockParticipantsPanel();
+        }
     });
 }
 
@@ -300,7 +383,12 @@ async function joinRoom(fromUrl) {
         var res = await fetch('index.php?action=join_room', {
             method: 'POST',
             headers: csrfHeaders(),
-            body: JSON.stringify({ room: fields.room, name: fields.user, role: fields.role })
+            body: JSON.stringify({
+                room: fields.room,
+                name: fields.user,
+                role: fields.role,
+                password: getJoinPassword()
+            })
         });
         var data = await res.json();
         if (!data.success) {
@@ -374,7 +462,7 @@ async function logout() {
     }
     leaveWorkspace();
     await refreshCsrf();
-    history.replaceState(null, '', window.location.pathname + '?lang=' + encodeURIComponent(currentLang));
+    updateUrlParams();
 }
 
 function startPolling() {
@@ -439,6 +527,31 @@ async function saveDeckConfig() {
     });
 }
 
+function shouldSkipParticipantsRender() {
+    if (isScrollingParticipants || participantsPanelLocked) {
+        return true;
+    }
+    var active = document.activeElement;
+    return !!(active && active.classList && active.classList.contains('role-select-mini'));
+}
+
+function lockParticipantsPanel() {
+    clearTimeout(participantsUnlockTimer);
+    participantsPanelLocked = true;
+}
+
+function scheduleUnlockParticipantsPanel() {
+    clearTimeout(participantsUnlockTimer);
+    participantsUnlockTimer = setTimeout(function () {
+        participantsPanelLocked = false;
+        if (participantsRenderPending && lastState) {
+            participantsRenderPending = false;
+            clientStateHash = '';
+            renderParticipants(lastState.participants || {}, !!lastState.revealed);
+        }
+    }, 400);
+}
+
 function fieldIsBusy(id) {
     var node = document.getElementById(id);
     return node && document.activeElement === node;
@@ -466,6 +579,7 @@ function renderStory(state) {
 }
 
 function renderWorkspace(state) {
+    state = withPendingVote(state);
     lastState = state;
     var hash = JSON.stringify(state);
     handleTimerExecution(state);
@@ -478,8 +592,11 @@ function renderWorkspace(state) {
 
     renderStory(state);
     renderCardsMatrix(state);
-    if (!isScrollingParticipants) {
+    if (!shouldSkipParticipantsRender()) {
         renderParticipants(state.participants || {}, !!state.revealed);
+        participantsRenderPending = false;
+    } else {
+        participantsRenderPending = true;
     }
 
     var revealBtn = document.getElementById('btn-reveal');
@@ -517,16 +634,75 @@ function myVote(state) {
     return found && found.vote ? found.vote : null;
 }
 
+function isCardsFlipLocked() {
+    return activeFlipCount > 0;
+}
+
+function withPendingVote(state) {
+    if (!pendingVote || !state || !state.participants) {
+        return state;
+    }
+    var merged = JSON.parse(JSON.stringify(state));
+    Object.keys(merged.participants).forEach(function (id) {
+        var p = merged.participants[id];
+        if (p.name !== currentUser) return;
+        merged.participants[id] = Object.assign({}, p, {
+            vote: pendingVote.selecting
+                ? { deck: pendingVote.deck, value: String(pendingVote.value) }
+                : null
+        });
+    });
+    return merged;
+}
+
+function patchMyVoteInState(deck, value, selected) {
+    if (!lastState || !lastState.participants) return;
+    Object.keys(lastState.participants).forEach(function (id) {
+        var p = lastState.participants[id];
+        if (p.name !== currentUser) return;
+        lastState.participants[id] = Object.assign({}, p, {
+            vote: selected ? { deck: deck, value: String(value) } : null
+        });
+    });
+    clientStateHash = '';
+}
+
+function syncCardsAfterFlip() {
+    /* DOM bleibt optimistisch; Sync kommt über pollState */
+}
+
+function applyOptimisticCardVote(cardEl) {
+    var wrapper = document.getElementById('decks-wrapper');
+    if (!wrapper || !cardEl) return false;
+    var wasSelected = cardEl.classList.contains('selected');
+    wrapper.querySelectorAll('.poker-card').forEach(function (c) {
+        c.classList.remove('selected', 'dimmed');
+    });
+    if (!wasSelected) {
+        cardEl.classList.add('selected');
+        wrapper.querySelectorAll('.poker-card').forEach(function (c) {
+            if (c !== cardEl) c.classList.add('dimmed');
+        });
+    }
+    return !wasSelected;
+}
+
 function triggerFlip(card) {
+    activeFlipCount++;
     card.classList.remove('flip-anim');
     void card.offsetWidth;
     card.classList.add('flip-anim');
     setTimeout(function () {
         card.classList.remove('flip-anim');
-    }, 700);
+        activeFlipCount = Math.max(0, activeFlipCount - 1);
+        syncCardsAfterFlip();
+    }, FLIP_DURATION_MS);
 }
 
 function renderCardsMatrix(state) {
+    if (isCardsFlipLocked()) {
+        return;
+    }
     var wrapper = document.getElementById('decks-wrapper');
     clearNode(wrapper);
     var vote = myVote(state);
@@ -583,14 +759,32 @@ function renderCardsMatrix(state) {
             if (vote && !selected && !locked) card.classList.add('dimmed');
             if (locked) card.classList.add('locked');
             card.appendChild(el('div', { className: 'card-inner' }, [
-                el('span', { className: 'c-val', text: String(cardValue) }),
-                el('strong', { text: String(cardValue) }),
-                el('span', { className: 'c-val-rev', text: String(cardValue) })
+                el('div', { className: 'card-face card-front' }, [
+                    el('span', { className: 'c-val', text: String(cardValue) }),
+                    el('strong', { text: String(cardValue) }),
+                    el('span', { className: 'c-val-rev', text: String(cardValue) })
+                ]),
+                el('div', { className: 'card-face card-back' }, [
+                    el('strong', { text: '?' })
+                ])
             ]));
             if (!locked) {
                 card.addEventListener('click', function () {
+                    if (card.classList.contains('flip-anim')) {
+                        return;
+                    }
+                    var selecting = applyOptimisticCardVote(card);
+                    voteToken += 1;
+                    var token = voteToken;
+                    pendingVote = {
+                        deck: deckKey,
+                        value: cardValue,
+                        selecting: selecting,
+                        token: token
+                    };
+                    patchMyVoteInState(deckKey, cardValue, selecting);
                     triggerFlip(card);
-                    castVote(deckKey, cardValue);
+                    castVote(deckKey, cardValue, selecting, token);
                 });
             } else if (justRevealed && selected) {
                 triggerFlip(card);
@@ -602,12 +796,39 @@ function renderCardsMatrix(state) {
     });
 }
 
-async function castVote(deck, value) {
+async function castVote(deck, value, selecting, token) {
     try {
-        await apiPost('submit_vote', { room: currentRoom, deck: deck, vote: value });
+        var result = await apiPost('submit_vote', { room: currentRoom, deck: deck, vote: value });
+        if (token !== voteToken) {
+            return;
+        }
+        if (!result || !result.success) {
+            console.error('vote rejected', result);
+            pendingVote = null;
+            document.querySelectorAll('#decks-wrapper .flip-anim').forEach(function (c) {
+                c.classList.remove('flip-anim');
+            });
+            activeFlipCount = 0;
+            clientStateHash = '';
+            pollState();
+            return;
+        }
+        pendingVote = null;
+        patchMyVoteInState(deck, value, selecting);
+        clientStateHash = '';
         pollState();
     } catch (e) {
         console.error('vote failed', e);
+        if (token !== voteToken) {
+            return;
+        }
+        pendingVote = null;
+        document.querySelectorAll('#decks-wrapper .flip-anim').forEach(function (c) {
+            c.classList.remove('flip-anim');
+        });
+        activeFlipCount = 0;
+        clientStateHash = '';
+        pollState();
     }
 }
 
@@ -633,7 +854,7 @@ function renderParticipants(list, isRevealed) {
         return String(a.name || '').localeCompare(String(b.name || ''), currentLang, { sensitivity: 'base' });
     });
 
-    var isPriv = (currentRole === 'admin' || currentRole === 'moderator') && !currentBanned;
+    var isAdmin = currentRole === 'admin' && !currentBanned;
 
     rows.forEach(function (p) {
         var item = el('div', { className: 'participant-item' + (p.banned ? ' banned' : '') + (p.online ? '' : ' offline') });
@@ -663,7 +884,7 @@ function renderParticipants(list, isRevealed) {
         ]);
 
         var actions = el('div', { className: 'p-actions' });
-        if (isPriv && p.id && p.name !== currentUser) {
+        if (isAdmin && p.id && p.name !== currentUser) {
             if (p.banned) {
                 actions.appendChild(el('button', {
                     type: 'button',
@@ -675,19 +896,16 @@ function renderParticipants(list, isRevealed) {
             } else {
                 actions.appendChild(el('button', {
                     type: 'button',
-                    className: 'btn-tiny-subtle',
+                    className: 'btn-tiny-subtle btn-ban',
                     title: t('ban', 'Bannen'),
                     text: t('ban', 'Bannen'),
                     onClick: function () { updateRoomConfig({ ban: p.id }); }
                 }));
             }
-            var select = el('select', { className: 'role-select-mini' });
+            var select = el('select', { className: 'role-select-mini', title: t('lbl-role-change', 'Rolle ändern') });
             ['user', 'moderator', 'admin'].forEach(function (role) {
                 var opt = el('option', { value: role, text: t('role-' + role, role) });
                 if (role === p.role) opt.selected = true;
-                if (currentRole !== 'admin' && role === 'admin') {
-                    opt.disabled = true;
-                }
                 select.appendChild(opt);
             });
             select.addEventListener('change', function () {
@@ -696,11 +914,14 @@ function renderParticipants(list, isRevealed) {
             actions.appendChild(select);
         }
 
-        item.appendChild(info);
-        item.appendChild(voteNode);
+        var right = el('div', { className: 'p-right' });
         if (actions.childNodes.length) {
-            item.appendChild(actions);
+            right.appendChild(actions);
         }
+        right.appendChild(voteNode);
+
+        item.appendChild(info);
+        item.appendChild(right);
         container.appendChild(item);
     });
     container.scrollTop = scrollTop;

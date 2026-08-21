@@ -58,7 +58,8 @@ if ($action !== '') {
                 $uid,
                 $input['room'] ?? '',
                 $input['name'] ?? '',
-                $input['role'] ?? 'user'
+                $input['role'] ?? 'user',
+                $input['password'] ?? null
             );
         }
         if ($action === 'get_state') {
@@ -140,6 +141,10 @@ header('Content-Type: text/html; charset=utf-8');
                     <option value="moderator" data-i18n="role-moderator">Moderator</option>
                     <option value="admin" data-i18n="role-admin">Admin</option>
                 </select>
+            </div>
+            <div class="form-group" id="admin-password-group" hidden>
+                <label data-i18n="lbl-password" for="admin-password-input">Passwort</label>
+                <input type="password" id="admin-password-input" maxlength="64" autocomplete="current-password">
             </div>
             <p id="login-error" class="form-error" hidden></p>
             <button type="button" id="btn-join" class="btn-primary" data-i18n="btn-join" style="width:100%;">Raum betreten</button>

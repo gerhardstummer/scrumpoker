@@ -1,1 +1,140 @@
-{}
+{
+    "Bankrechner": {
+        "storyUrl": "",
+        "revealed": false,
+        "timerTarget": null,
+        "timerDuration": 5,
+        "activeDecks": {
+            "fibonacci": true,
+            "tshirt": false,
+            "days": false
+        },
+        "decks": {
+            "fibonacci": [
+                "0",
+                "1",
+                "2",
+                "3",
+                "5",
+                "8",
+                "13",
+                "20",
+                "40",
+                "100",
+                "?"
+            ],
+            "tshirt": [
+                "XS",
+                "S",
+                "M",
+                "L",
+                "X",
+                "XL",
+                "XXL",
+                "?"
+            ],
+            "days": [
+                "1",
+                "5",
+                "10",
+                "15",
+                "20",
+                "25",
+                "30",
+                "35",
+                "50",
+                "75",
+                "100",
+                "125",
+                "150",
+                "200"
+            ]
+        },
+        "participants": {
+            "7364f190a2b5d4a1ed8f5800ccc1db2b": {
+                "id": "7364f190a2b5d4a1ed8f5800ccc1db2b",
+                "name": "Max",
+                "role": "user",
+                "vote": null,
+                "lastSeen": 1786998209,
+                "banned": false,
+                "online": false
+            }
+        }
+    },
+    "Pioneers": {
+        "storyUrl": "",
+        "revealed": false,
+        "timerTarget": null,
+        "timerDuration": 5,
+        "activeDecks": {
+            "fibonacci": true,
+            "tshirt": false,
+            "days": false
+        },
+        "decks": {
+            "fibonacci": [
+                "0",
+                "1",
+                "2",
+                "3",
+                "5",
+                "8",
+                "13",
+                "20",
+                "40",
+                "100",
+                "?"
+            ],
+            "tshirt": [
+                "XS",
+                "S",
+                "M",
+                "L",
+                "X",
+                "XL",
+                "XXL",
+                "?"
+            ],
+            "days": [
+                "1",
+                "5",
+                "10",
+                "15",
+                "20",
+                "25",
+                "30",
+                "35",
+                "50",
+                "75",
+                "100",
+                "125",
+                "150",
+                "200"
+            ]
+        },
+        "participants": {
+            "80de9f5730efbdbd14e697663eb8e001": {
+                "id": "80de9f5730efbdbd14e697663eb8e001",
+                "name": "Gerhard",
+                "role": "admin",
+                "vote": {
+                    "deck": "fibonacci",
+                    "value": "8"
+                },
+                "lastSeen": 1786998203,
+                "banned": false,
+                "online": false
+            },
+            "772618f92b2601e984f48dd7888f6f08": {
+                "id": "772618f92b2601e984f48dd7888f6f08",
+                "name": "Mario",
+                "role": "user",
+                "vote": null,
+                "lastSeen": 1787046005,
+                "banned": false,
+                "online": false
+            },
+        }
+    }
+}

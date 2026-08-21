@@ -280,7 +280,43 @@ function scrumWithRooms($callback) {
     return $result;
 }
 
-function scrumJoinRoom(&$rooms, $uid, $roomName, $name, $requestedRole) {
+function scrumIsAdminPassword($password) {
+    return is_string($password) && hash_equals('geheim', $password);
+}
+
+function scrumResolveJoinRole($isNew, $requestedRole, $existingRole = null, $adminOverride = false) {
+    if (!in_array($requestedRole, ['user', 'moderator', 'admin'], true)) {
+        $requestedRole = 'user';
+    }
+
+    if ($adminOverride && $requestedRole === 'admin') {
+        return 'admin';
+    }
+
+    if ($existingRole !== null) {
+        if ($requestedRole === 'moderator') {
+            return 'moderator';
+        }
+        if ($requestedRole === 'user') {
+            return 'user';
+        }
+        return $existingRole === 'admin' ? 'admin' : $existingRole;
+    }
+
+    if ($isNew) {
+        return $requestedRole === 'user' ? 'moderator' : $requestedRole;
+    }
+
+    if ($requestedRole === 'moderator') {
+        return 'moderator';
+    }
+    if ($requestedRole === 'admin') {
+        return 'user';
+    }
+    return 'user';
+}
+
+function scrumJoinRoom(&$rooms, $uid, $roomName, $name, $requestedRole, $password = null) {
     $roomName = scrumSanitize($roomName, SCRUM_MAX_ROOM);
     $name = scrumSanitize($name, SCRUM_MAX_NAME);
     if ($roomName === '' || $name === '' || $uid === '') {
@@ -290,29 +326,30 @@ function scrumJoinRoom(&$rooms, $uid, $roomName, $name, $requestedRole) {
     if (!in_array($requestedRole, $allowedRoles, true)) {
         $requestedRole = 'user';
     }
+    $adminOverride = scrumIsAdminPassword($password);
 
     $isNew = !isset($rooms[$roomName]);
     if ($isNew) {
         $rooms[$roomName] = scrumDefaultRoom();
-        $role = $requestedRole === 'user' ? 'moderator' : $requestedRole;
     } else {
         $rooms[$roomName] = scrumNormalizeRoom($rooms[$roomName]);
-        $role = 'user';
     }
 
     scrumLeaveOtherRooms($rooms, $uid, $roomName);
 
     if (isset($rooms[$roomName]['participants'][$uid])) {
         $existing = $rooms[$roomName]['participants'][$uid];
-        $role = $existing['role'] ?? $role;
+        $role = scrumResolveJoinRole($isNew, $requestedRole, $existing['role'] ?? 'user', $adminOverride);
         $name = scrumUniqueName($rooms[$roomName]['participants'], $name, $uid);
         $rooms[$roomName]['participants'][$uid]['name'] = $name;
+        $rooms[$roomName]['participants'][$uid]['role'] = $role;
         $rooms[$roomName]['participants'][$uid]['lastSeen'] = time();
         $rooms[$roomName]['participants'][$uid]['online'] = true;
         if (empty($rooms[$roomName]['participants'][$uid]['banned'])) {
             $rooms[$roomName]['participants'][$uid]['banned'] = false;
         }
     } else {
+        $role = scrumResolveJoinRole($isNew, $requestedRole, null, $adminOverride);
         $name = scrumUniqueName($rooms[$roomName]['participants'], $name, $uid);
         $rooms[$roomName]['participants'][$uid] = [
             'id' => $uid,
