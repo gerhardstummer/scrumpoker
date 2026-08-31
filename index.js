@@ -227,6 +227,7 @@ function updateUrlParams() {
     var qs = params.toString();
     var next = window.location.pathname + (qs ? '?' + qs : '') + window.location.hash;
     history.replaceState(null, '', next);
+    refreshJoinQr();
 }
 
 function hydrateFromUrl() {
@@ -306,6 +307,9 @@ function setupEventListeners() {
     document.getElementById('chk-allow-vote-change').addEventListener('change', function (e) {
         updateRoomConfig({ allowVoteChangeAfterReveal: e.target.checked });
     });
+    document.getElementById('chk-allow-user-moderation').addEventListener('change', function (e) {
+        updateRoomConfig({ allowUserModeration: e.target.checked });
+    });
     document.getElementById('input-story-url').addEventListener('change', function (e) {
         var value = e.target.value.trim();
         if (currentRole === 'user' && value === '') {
@@ -315,6 +319,16 @@ function setupEventListeners() {
         updateRoomConfig({ storyUrl: value });
     });
     document.getElementById('btn-save-config').addEventListener('click', saveDeckConfig);
+    document.getElementById('btn-save-admin-password').addEventListener('click', saveAdminPassword);
+
+    var timerInput = document.getElementById('input-timer-duration');
+    timerInput.addEventListener('input', function () {
+        markFieldBusy('input-timer-duration');
+        scheduleSaveTimerDuration();
+    });
+    timerInput.addEventListener('change', function () {
+        saveTimerDuration();
+    });
 
     var list = document.getElementById('participants-list');
     list.addEventListener('scroll', function () {
@@ -338,6 +352,133 @@ function setupEventListeners() {
         if (e.target.classList && e.target.classList.contains('role-select-mini')) {
             scheduleUnlockParticipantsPanel();
         }
+    });
+}
+
+function getJoinQrUrl() {
+    if (!currentRoom || !currentUser) {
+        return '';
+    }
+    var params = new URLSearchParams();
+    params.set('room', currentRoom);
+    params.set('user', currentUser);
+    params.set('role', currentRole || 'user');
+    params.set('lang', currentLang || 'de');
+    params.set('theme', getCurrentTheme());
+    if (joinPassword) {
+        params.set('password', joinPassword);
+    }
+    var origin = document.body.getAttribute('data-join-origin') || window.location.origin;
+    var path = window.location.pathname || '/index.php';
+    return origin.replace(/\/$/, '') + path + '?' + params.toString();
+}
+
+var lastJoinQrUrl = '';
+var joinQrMode = '';
+var remoteJoinTimer = null;
+var remoteJoinInFlight = false;
+
+function setJoinQrHint(mode) {
+    var hint = document.getElementById('join-qr-hint');
+    if (!hint) {
+        return;
+    }
+    var key = 'qr-hint';
+    var fallback = 'QR-Code scannen, um dich auf dem Handy anzumelden.';
+    if (mode === 'remote') {
+        key = 'qr-hint-remote';
+        fallback = 'QR-Code scannen — funktioniert auch, wenn Handy und Rechner nicht im selben Netz sind.';
+    } else if (mode === 'pending') {
+        key = 'qr-hint-pending';
+        fallback = 'Öffentliche Verbindung wird eingerichtet. Bis dahin funktioniert der Code im selben WLAN.';
+    } else if (mode === 'lan') {
+        key = 'qr-hint-lan';
+        fallback = 'Keine öffentliche Verbindung. Handy und Rechner müssen im selben WLAN sein.';
+    }
+    joinQrMode = mode || '';
+    hint.setAttribute('data-i18n', key);
+    hint.textContent = t(key, fallback);
+    hint.classList.toggle('qr-hint-pending', mode === 'pending');
+}
+
+function stopRemoteJoin() {
+    if (remoteJoinTimer) {
+        clearTimeout(remoteJoinTimer);
+        remoteJoinTimer = null;
+    }
+    remoteJoinInFlight = false;
+}
+
+function applyRemoteJoinResult(data) {
+    if (!data || !data.success) {
+        return false;
+    }
+    if (data.origin) {
+        document.body.setAttribute('data-join-origin', data.origin);
+        refreshJoinQr();
+    }
+    if (data.pending) {
+        setJoinQrHint('pending');
+        return true;
+    }
+    setJoinQrHint(data.remote ? 'remote' : 'lan');
+    return false;
+}
+
+async function pollRemoteJoin() {
+    if (remoteJoinInFlight || !currentRoom) {
+        return;
+    }
+    remoteJoinInFlight = true;
+    try {
+        var data = await apiPost('ensure_remote_join', {});
+        var keepPending = applyRemoteJoinResult(data);
+        if (keepPending && currentRoom) {
+            remoteJoinTimer = setTimeout(pollRemoteJoin, 1500);
+        }
+    } catch (e) {
+        console.error('remote join failed', e);
+        if (currentRoom) {
+            remoteJoinTimer = setTimeout(pollRemoteJoin, 3000);
+        }
+    } finally {
+        remoteJoinInFlight = false;
+    }
+}
+
+function startRemoteJoin() {
+    stopRemoteJoin();
+    if (!currentRoom) {
+        return;
+    }
+    setJoinQrHint('pending');
+    pollRemoteJoin();
+}
+
+function refreshJoinQr() {
+    var box = document.getElementById('join-qr');
+    if (!box) {
+        return;
+    }
+    var url = getJoinQrUrl();
+    if (!url || typeof QRCode === 'undefined') {
+        lastJoinQrUrl = '';
+        clearNode(box);
+        return;
+    }
+    if (url === lastJoinQrUrl && box.childNodes.length) {
+        return;
+    }
+    lastJoinQrUrl = url;
+    clearNode(box);
+    box.setAttribute('title', url);
+    new QRCode(box, {
+        text: url,
+        width: 148,
+        height: 148,
+        colorDark: '#0f172a',
+        colorLight: '#ffffff',
+        correctLevel: QRCode.CorrectLevel.M
     });
 }
 
@@ -422,6 +563,7 @@ function enterWorkspace() {
     document.getElementById('login-container').hidden = true;
     document.getElementById('main-layout').hidden = false;
     refreshChrome();
+    startRemoteJoin();
 }
 
 function refreshChrome() {
@@ -438,10 +580,19 @@ function refreshChrome() {
     rolePill.className = 'role-pill role-pill-' + (currentRole || 'user');
 
     var isPriv = currentRole === 'admin' || currentRole === 'moderator';
-    document.getElementById('panel-moderation').hidden = !isPriv || currentBanned;
+    document.getElementById('panel-moderation').hidden = !canUseModerationActions();
+    document.getElementById('moderation-settings').hidden = !isPriv || currentBanned;
     document.getElementById('panel-deck-config').hidden = currentRole !== 'admin' || currentBanned;
     document.getElementById('panel-rooms').hidden = currentRole !== 'admin' || currentBanned;
+    document.getElementById('panel-admin-password').hidden = currentRole !== 'admin' || currentBanned;
     document.getElementById('input-story-url').disabled = currentBanned;
+    refreshJoinQr();
+}
+
+function canUseModerationActions() {
+    if (currentBanned) return false;
+    if (currentRole === 'admin' || currentRole === 'moderator') return true;
+    return !!(lastState && lastState.allowUserModeration);
 }
 
 function leaveWorkspace() {
@@ -459,6 +610,9 @@ function leaveWorkspace() {
         clearInterval(activePolling);
         activePolling = null;
     }
+    stopRemoteJoin();
+    setJoinQrHint('');
+    refreshJoinQr();
 }
 
 async function logout() {
@@ -527,6 +681,51 @@ async function updateRoomConfig(payload) {
     }
 }
 
+function showAdminPasswordStatus(message, ok) {
+    var box = document.getElementById('admin-password-status');
+    if (!box) return;
+    if (!message) {
+        box.hidden = true;
+        box.textContent = '';
+        box.className = 'form-error';
+        return;
+    }
+    box.hidden = false;
+    box.textContent = message;
+    box.className = ok ? 'form-ok' : 'form-error';
+}
+
+async function saveAdminPassword() {
+    var current = document.getElementById('input-admin-password-current').value;
+    var next = document.getElementById('input-admin-password-new').value;
+    var confirm = document.getElementById('input-admin-password-confirm').value;
+    showAdminPasswordStatus('');
+    if (next !== confirm) {
+        showAdminPasswordStatus(t('err-password-mismatch', 'Die neuen Passwörter stimmen nicht überein.'));
+        return;
+    }
+    try {
+        var result = await apiPost('change_admin_password', {
+            room: currentRoom,
+            currentPassword: current,
+            newPassword: next
+        });
+        if (!result || !result.success) {
+            showAdminPasswordStatus(t('err-' + (result && result.message ? result.message : 'unauthorized'), t('err-unauthorized', 'Keine Berechtigung.')));
+            return;
+        }
+        document.getElementById('input-admin-password-current').value = '';
+        document.getElementById('input-admin-password-new').value = '';
+        document.getElementById('input-admin-password-confirm').value = '';
+        joinPassword = next;
+        showAdminPasswordStatus(t('ok-admin-password', 'Passwort wurde geändert.'), true);
+        refreshJoinQr();
+    } catch (e) {
+        console.error('password change failed', e);
+        showAdminPasswordStatus(t('err-storage_unavailable', 'Speicher nicht verfügbar.'));
+    }
+}
+
 async function saveDeckConfig() {
     updateRoomConfig({
         timerDuration: parseInt(document.getElementById('input-timer-duration').value, 10) || 5,
@@ -536,6 +735,32 @@ async function saveDeckConfig() {
             days: document.getElementById('input-deck-days').value
         }
     });
+}
+
+var timerSaveTimer = null;
+var fieldBusyUntil = {};
+
+function markFieldBusy(id, ms) {
+    fieldBusyUntil[id] = Date.now() + (ms || 2000);
+}
+
+function readTimerDuration() {
+    var value = parseInt(document.getElementById('input-timer-duration').value, 10);
+    if (isNaN(value) || value < 1) value = 1;
+    if (value > 600) value = 600;
+    return value;
+}
+
+function saveTimerDuration() {
+    clearTimeout(timerSaveTimer);
+    timerSaveTimer = null;
+    markFieldBusy('input-timer-duration');
+    updateRoomConfig({ timerDuration: readTimerDuration() });
+}
+
+function scheduleSaveTimerDuration() {
+    clearTimeout(timerSaveTimer);
+    timerSaveTimer = setTimeout(saveTimerDuration, 250);
 }
 
 function shouldSkipParticipantsRender() {
@@ -565,7 +790,11 @@ function scheduleUnlockParticipantsPanel() {
 
 function fieldIsBusy(id) {
     var node = document.getElementById(id);
-    return node && document.activeElement === node;
+    if (node && document.activeElement === node) {
+        return true;
+    }
+    var until = fieldBusyUntil[id];
+    return !!(until && Date.now() < until);
 }
 
 function renderStory(state) {
@@ -622,6 +851,11 @@ function renderWorkspace(state) {
         allowChangeBox.checked = !!state.allowVoteChangeAfterReveal;
     }
 
+    var allowUserModBox = document.getElementById('chk-allow-user-moderation');
+    if (allowUserModBox && !fieldIsBusy('chk-allow-user-moderation')) {
+        allowUserModBox.checked = !!state.allowUserModeration;
+    }
+
     if (currentRole === 'admin') {
         if (!fieldIsBusy('input-timer-duration')) {
             document.getElementById('input-timer-duration').value = state.timerDuration || 5;
@@ -641,6 +875,37 @@ function renderWorkspace(state) {
         document.getElementById('panel-stats').hidden = true;
         resetStatUi();
     }
+
+    renderRevealBy(state);
+}
+
+function renderRevealBy(state) {
+    var panel = document.getElementById('panel-reveal-by');
+    var titleNode = document.getElementById('reveal-by-title');
+    var nameNode = document.getElementById('reveal-by-name');
+    if (!panel || !nameNode) return;
+    var revealName = state && state.revealedBy ? String(state.revealedBy).trim() : '';
+    var resetName = state && state.resetBy ? String(state.resetBy).trim() : '';
+    var name = '';
+    var title = '';
+    if (revealName && (state.timerTarget || state.revealed)) {
+        name = revealName;
+        title = t('reveal-by-title', 'Aufgedeckt von');
+    } else if (resetName) {
+        name = resetName;
+        title = t('reset-by-title', 'Zurückgesetzt von');
+    }
+    if (!name) {
+        panel.hidden = true;
+        nameNode.textContent = '';
+        return;
+    }
+    panel.hidden = false;
+    if (titleNode) {
+        titleNode.removeAttribute('data-i18n');
+        titleNode.textContent = title;
+    }
+    nameNode.textContent = name;
 }
 
 function areVotesLocked(state) {

@@ -1,0 +1,17 @@
+{
+    "Bankrechner": {
+        "deckType": "fibonacci",
+        "storyUrl": "",
+        "revealed": true,
+        "timerDuration": 30,
+        "timerTarget": null,
+        "participants": {
+            "Gerhard": {
+                "name": "Gerhard",
+                "role": "admin",
+                "vote": "8",
+                "lastSeen": 1779048417
+            }
+        }
+    }
+}

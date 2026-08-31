@@ -16,6 +16,7 @@ FEATURES:
 - Mehrere Kartendecks parallel (Fibonacci, T-Shirt, Personentage)
 - Aufdecken startet den Countdown (Default 5 Sekunden); danach Sperre
 - Ban/Unban, Clear für Abwesende, Raumliste mit Löschen (Admin)
+- Jeder Admin hat ein eigenes Passwort (Default „geheim“); Hash am Teilnehmer
 - Statistik: Anzahl, Mittelwert, Median, Modus, Empfehlung, Verteilung
 - Light/Dark Mode, Glassmorphism, keine Grüntöne
 - XSS-sicheres Rendering, Session-gebundene Rechte

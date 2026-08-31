@@ -41,11 +41,25 @@ if ($action !== '') {
     }
 
     if ($action === 'get_session') {
-        echo json_encode(['success' => true, 'csrf' => scrumCsrfToken()], JSON_UNESCAPED_UNICODE);
+        echo json_encode([
+            'success' => true,
+            'csrf' => scrumCsrfToken(),
+            'joinOrigin' => scrumJoinOrigin(),
+            'remoteJoin' => scrumRemoteJoinActive(),
+        ], JSON_UNESCAPED_UNICODE);
         exit;
     }
 
-    $mutating = ['join_room', 'submit_vote', 'update_room', 'delete_room', 'logout'];
+    if ($action === 'ensure_remote_join') {
+        if (!scrumCsrfCheck()) {
+            echo json_encode(['success' => false, 'message' => 'csrf']);
+            exit;
+        }
+        echo json_encode(scrumEnsureRemoteJoin(), JSON_UNESCAPED_UNICODE);
+        exit;
+    }
+
+    $mutating = ['join_room', 'submit_vote', 'update_room', 'delete_room', 'change_admin_password', 'logout'];
     if (in_array($action, $mutating, true) && !scrumCsrfCheck()) {
         echo json_encode(['success' => false, 'message' => 'csrf']);
         exit;
@@ -84,6 +98,15 @@ if ($action !== '') {
         if ($action === 'delete_room') {
             return scrumDeleteRoom($rooms, $uid, $input['room'] ?? '', $input['target'] ?? '');
         }
+        if ($action === 'change_admin_password') {
+            return scrumChangeAdminPassword(
+                $rooms,
+                $uid,
+                $input['room'] ?? '',
+                $input['currentPassword'] ?? '',
+                $input['newPassword'] ?? ''
+            );
+        }
         if ($action === 'logout') {
             $out = scrumLogout($rooms, $uid);
             return $out;
@@ -115,7 +138,7 @@ header('Content-Type: text/html; charset=utf-8');
     <link href="https://fonts.googleapis.com/css2?family=Urbanist:wght@400;600;700;800&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="style.css">
 </head>
-<body data-csrf="<?php echo htmlspecialchars(scrumCsrfToken(), ENT_QUOTES, 'UTF-8'); ?>">
+<body data-csrf="<?php echo htmlspecialchars(scrumCsrfToken(), ENT_QUOTES, 'UTF-8'); ?>" data-join-origin="<?php echo htmlspecialchars(scrumJoinOrigin(), ENT_QUOTES, 'UTF-8'); ?>">
     <div id="login-container" class="login-container">
         <div class="login-card glass">
             <div class="login-card-head">
@@ -194,11 +217,18 @@ header('Content-Type: text/html; charset=utf-8');
                     <button type="button" id="btn-reset" class="btn-outline" data-i18n="btn-reset">Zurücksetzen</button>
                     <button type="button" id="btn-clear" class="btn-secondary" data-i18n="btn-clear">Clear</button>
                 </div>
-                <label class="toggle-switch">
-                    <input type="checkbox" id="chk-allow-vote-change">
-                    <span class="toggle-track"><span class="toggle-thumb"></span></span>
-                    <span class="toggle-label" data-i18n="lbl-allow-vote-change">Karten nach Aufdecken änderbar</span>
-                </label>
+                <div id="moderation-settings">
+                    <label class="toggle-switch">
+                        <input type="checkbox" id="chk-allow-vote-change">
+                        <span class="toggle-track"><span class="toggle-thumb"></span></span>
+                        <span class="toggle-label" data-i18n="lbl-allow-vote-change">Karten nach Aufdecken änderbar</span>
+                    </label>
+                    <label class="toggle-switch">
+                        <input type="checkbox" id="chk-allow-user-moderation">
+                        <span class="toggle-track"><span class="toggle-thumb"></span></span>
+                        <span class="toggle-label" data-i18n="lbl-allow-user-moderation">User dürfen aufdecken, zurücksetzen und Clear nutzen</span>
+                    </label>
+                </div>
             </div>
 
             <div class="panel glass" id="panel-cards">
@@ -208,6 +238,11 @@ header('Content-Type: text/html; charset=utf-8');
         </div>
 
         <div class="right-column">
+            <div class="panel glass" id="panel-reveal-by" hidden>
+                <span class="panel-label" id="reveal-by-title" data-i18n="reveal-by-title">Aufgedeckt von</span>
+                <div id="reveal-by-name" class="reveal-by-name"></div>
+            </div>
+
             <div class="panel glass" id="panel-timer-hub" hidden>
                 <span class="panel-label" data-i18n="countdown-title">Countdown</span>
                 <div class="countdown-container">
@@ -269,9 +304,35 @@ header('Content-Type: text/html; charset=utf-8');
                 <span class="panel-label" data-i18n="rooms-title">Raumliste</span>
                 <div id="rooms-list"></div>
             </div>
+
+            <div class="panel glass" id="panel-admin-password" hidden>
+                <span class="panel-label" data-i18n="admin-password-title">Admin-Passwort</span>
+                <p class="empty-hint" data-i18n="admin-password-hint">Dein persönliches Admin-Passwort in diesem Raum. Standard ist „geheim“, bis du es änderst.</p>
+                <div class="form-group">
+                    <label data-i18n="lbl-admin-password-current" for="input-admin-password-current">Aktuelles Passwort</label>
+                    <input type="password" id="input-admin-password-current" maxlength="64" autocomplete="current-password">
+                </div>
+                <div class="form-group">
+                    <label data-i18n="lbl-admin-password-new" for="input-admin-password-new">Neues Passwort</label>
+                    <input type="password" id="input-admin-password-new" maxlength="64" autocomplete="new-password">
+                </div>
+                <div class="form-group">
+                    <label data-i18n="lbl-admin-password-confirm" for="input-admin-password-confirm">Neues Passwort wiederholen</label>
+                    <input type="password" id="input-admin-password-confirm" maxlength="64" autocomplete="new-password">
+                </div>
+                <p id="admin-password-status" class="form-error" hidden></p>
+                <button type="button" id="btn-save-admin-password" class="btn-primary" data-i18n="btn-save-admin-password">Passwort ändern</button>
+            </div>
+
+            <div class="panel glass" id="panel-join-qr">
+                <span class="panel-label" data-i18n="qr-title">Handy-Login</span>
+                <div id="join-qr" class="join-qr" title=""></div>
+                <p class="empty-hint" id="join-qr-hint" data-i18n="qr-hint">QR-Code scannen, um dich auf dem Handy anzumelden.</p>
+            </div>
         </div>
     </div>
 
+    <script src="qrcode.min.js"></script>
     <script src="index.js"></script>
 </body>
 </html>
